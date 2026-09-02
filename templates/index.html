@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <!-- viewport-fit=cover : évite les bandes moches sur iPhone à encoche -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>DiggApp — creuse dans tes données</title>
+  <style>
+    /* =====================================================================
+       PALETTE — thème "excavation" : brun-noir profond + accents terreux
+       Toutes les couleurs sont des variables : change-les ici, tout suit.
+       ===================================================================== */
+    :root {
+      --bg: #14100d;            /* fond principal, brun-noir profond */
+      --bg-header: #1a1410;     /* header légèrement plus clair */
+      --card: #2a2118;          /* fond des cartes, brun-anthracite */
+      --card-edge: #3a2e20;     /* bordure des cartes */
+      --text: #e8ddcc;          /* texte principal, blanc cassé chaud */
+      --text-dim: #9a8b74;      /* texte secondaire, beige éteint */
+      --accent: #c9873a;        /* ambre/cuivre : boutons, liens, actif */
+      --accent-dark: #8f5f28;
+
+      /* Palette catégories : tons terreux différenciés */
+      --cat-mode: #c96f4a;         /* terracotta */
+      --cat-sport: #8f9e4f;        /* kaki */
+      --cat-cuisine: #d9a441;      /* ocre */
+      --cat-restaurant: #c9a15e;   /* sable doré */
+      --cat-deco: #b08968;         /* brun clair */
+      --cat-tech: #8a9187;         /* gris lichen */
+      --cat-audiovisuel: #a35d52;  /* brique */
+      --cat-tuto: #977f4e;         /* bronze */
+      --cat-film_serie: #8d6b4f;   /* brun cacao */
+      --cat-inspiration: #d4b483;  /* blé */
+      --cat-autre: #77695a;        /* taupe */
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { -webkit-text-size-adjust: 100%; }
+
+    body {
+      background: var(--bg);
+      /* Grain suggéré : deux dégradés radiaux très discrets, pas d'image */
+      background-image:
+        radial-gradient(ellipse at 20% 0%, rgba(201, 135, 58, 0.05), transparent 50%),
+        radial-gradient(ellipse at 80% 100%, rgba(201, 111, 74, 0.04), transparent 50%);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+    }
+
+    /* =====================================================================
+       HEADER — sticky, reste visible au scroll
+       ===================================================================== */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: var(--bg-header);
+      border-bottom: 2px solid var(--card-edge);
+      padding: 10px 14px 12px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .brand img {
+      width: 36px;
+      height: 36px;
+      object-fit: contain;
+      /* Coins presque nets : clin d'œil pixel/bloc */
+      border-radius: 4px;
+    }
+
+    .brand h1 {
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      color: var(--accent);
+      line-height: 1.1;
+    }
+
+    .brand .tagline {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      letter-spacing: 0.3px;
+    }
+
+    /* Le compteur est poussé à droite par margin-left:auto */
+    .counter {
+      margin-left: auto;
+      background: var(--card);
+      border: 1px solid var(--card-edge);
+      border-radius: 4px;
+      padding: 5px 10px;
+      font-size: 0.8rem;
+      color: var(--accent);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .searchbar {
+      display: flex;
+      gap: 8px;
+    }
+
+    .searchbar input {
+      flex: 1;
+      background: var(--card);
+      border: 1px solid var(--card-edge);
+      border-radius: 6px;
+      padding: 11px 14px;       /* assez haut pour être tapé au pouce */
+      color: var(--text);
+      font-size: 1rem;          /* 16px min : évite le zoom auto iOS */
+      outline: none;
+    }
+    .searchbar input:focus { border-color: var(--accent); }
+    .searchbar input::placeholder { color: var(--text-dim); }
+
+    /* =====================================================================
+       FILTRES — chips catégories scrollables + toggle type
+       ===================================================================== */
+    .chips {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;          /* scroll horizontal au doigt */
+      padding: 12px 14px 4px;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;     /* cache la scrollbar (Firefox) */
+    }
+    .chips::-webkit-scrollbar { display: none; }  /* (Safari/Chrome) */
+
+    .chip {
+      flex-shrink: 0;            /* les chips ne se compriment pas */
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: 5px;
+      border: 1px solid var(--chip-color, var(--text-dim));
+      color: var(--chip-color, var(--text-dim));
+      background: transparent;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s;
+    }
+    .chip .n {
+      font-size: 0.72rem;
+      opacity: 0.8;
+    }
+    /* Chip active : fond plein, texte sombre */
+    .chip.active {
+      background: var(--chip-color, var(--accent));
+      color: #1a1410;
+    }
+    .chip.active .n { opacity: 0.7; }
+
+    .type-toggle {
+      display: flex;
+      gap: 0;
+      margin: 10px 14px 0;
+      border: 1px solid var(--card-edge);
+      border-radius: 6px;
+      overflow: hidden;
+      width: fit-content;
+    }
+    .type-toggle button {
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      padding: 9px 18px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .type-toggle button.active {
+      background: var(--accent);
+      color: #1a1410;
+    }
+
+    /* =====================================================================
+       GRILLE DE CARTES — 1 colonne mobile, jusqu'à 4 sur desktop
+       ===================================================================== */
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;   /* mobile-first : 1 colonne */
+      gap: 14px;
+      padding: 14px;
+    }
+    /* Grands téléphones / petites tablettes : 2 colonnes */
+    @media (min-width: 560px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+    /* Tablette / laptop : 3 colonnes */
+    @media (min-width: 900px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+    /* Grand écran : 4 colonnes, largeur limitée */
+    @media (min-width: 1280px) {
+      .grid { grid-template-columns: repeat(4, 1fr); max-width: 1400px; margin: 0 auto; }
+    }
+
+    .card {
+      background: var(--card);
+      /* Grain suggéré par un dégradé discret */
+      background-image: linear-gradient(160deg, rgba(232, 221, 204, 0.03), transparent 40%);
+      border: 1px solid var(--card-edge);
+      border-radius: 6px;
+      overflow: hidden;
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      flex-direction: column;
+      transition: border-color 0.15s;
+    }
+    .card:active, .card:hover { border-color: var(--accent-dark); }
+
+    .card .visual {
+      position: relative;
+      aspect-ratio: 4 / 3;        /* ratio constant : jamais déformé */
+      background: #201913;
+    }
+    .card .visual img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;          /* recadre proprement sans déformer */
+      display: block;
+    }
+    /* Placeholder quand un lien n'a pas de miniature */
+    .card .visual .placeholder {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: var(--card-edge);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    /* Badges posés sur l'image */
+    .badge {
+      position: absolute;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    .badge.cat  { top: 8px; left: 8px; color: #1a1410; }
+    .badge.type { top: 8px; right: 8px; background: rgba(20, 16, 13, 0.82); color: var(--text); }
+
+    .card .body { padding: 12px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+
+    .card .title {
+      font-size: 0.92rem;
+      font-weight: 600;
+      line-height: 1.35;
+      /* Coupe proprement à 3 lignes max */
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .card .tags { display: flex; flex-wrap: wrap; gap: 5px; }
+    .card .tag {
+      background: var(--bg);
+      border: 1px solid var(--card-edge);
+      color: var(--text-dim);
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-size: 0.7rem;
+    }
+
+    .card .date {
+      margin-top: auto;           /* pousse la date en bas de la carte */
+      font-size: 0.72rem;
+      color: var(--text-dim);
+    }
+
+    .empty {
+      text-align: center;
+      color: var(--text-dim);
+      padding: 60px 20px;
+      font-size: 0.95rem;
+    }
+
+    /* =====================================================================
+       CHAT IA — bulle flottante + panneau (plein écran sur mobile)
+       ===================================================================== */
+    .chat-fab {
+      position: fixed;
+      bottom: 20px;
+      right: 16px;
+      width: 58px;
+      height: 58px;
+      border-radius: 14px;         /* carré arrondi, pas un rond : esprit bloc */
+      background: var(--accent);
+      color: #1a1410;
+      border: none;
+      font-size: 1.5rem;
+      cursor: pointer;
+      box-shadow: 0 4px 18px rgba(201, 135, 58, 0.35);
+      z-index: 90;
+    }
+
+    .chat-panel {
+      position: fixed;
+      inset: 0;                    /* mobile : plein écran */
+      background: var(--bg);
+      z-index: 100;
+      display: none;               /* caché par défaut, .open l'affiche */
+      flex-direction: column;
+    }
+    .chat-panel.open { display: flex; }
+
+    /* Desktop : panneau ancré en bas à droite */
+    @media (min-width: 700px) {
+      .chat-panel {
+        inset: auto 20px 20px auto;
+        width: 400px;
+        height: min(620px, calc(100vh - 40px));
+        border: 1px solid var(--card-edge);
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55);
+      }
+    }
+
+    .chat-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px;
+      background: var(--bg-header);
+      border-bottom: 2px solid var(--card-edge);
+    }
+    .chat-head .t { font-weight: 800; color: var(--accent); }
+    .chat-head .s { font-size: 0.72rem; color: var(--text-dim); }
+    .chat-head button {
+      margin-left: auto;
+      background: var(--card);
+      border: 1px solid var(--card-edge);
+      color: var(--text);
+      border-radius: 6px;
+      width: 38px;
+      height: 38px;
+      font-size: 1.1rem;
+      cursor: pointer;
+    }
+
+    .chat-msgs {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .msg { max-width: 88%; padding: 10px 13px; border-radius: 10px; font-size: 0.9rem; line-height: 1.45; }
+    .msg.user {
+      align-self: flex-end;
+      background: var(--accent);
+      color: #1a1410;
+      border-bottom-right-radius: 3px;
+    }
+    .msg.bot {
+      align-self: flex-start;
+      background: var(--card);
+      border: 1px solid var(--card-edge);
+      border-bottom-left-radius: 3px;
+      white-space: pre-wrap;
+    }
+
+    /* Mini-grille de résultats dans le chat */
+    .msg-items {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      width: 100%;
+    }
+    .mini-card {
+      background: var(--card);
+      border: 1px solid var(--card-edge);
+      border-radius: 6px;
+      overflow: hidden;
+      text-decoration: none;
+      color: inherit;
+      font-size: 0.75rem;
+    }
+    .mini-card img { width: 100%; aspect-ratio: 16/10; object-fit: cover; display: block; }
+    .mini-card .mc-body { padding: 7px 8px; }
+    .mini-card .mc-cat { font-weight: 700; font-size: 0.65rem; }
+    .mini-card .mc-title {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      color: var(--text-dim);
+    }
+
+    .chat-input {
+      display: flex;
+      gap: 8px;
+      padding: 12px 14px;
+      /* Marge de sécurité pour la barre home de l'iPhone */
+      padding-bottom: calc(12px + env(safe-area-inset-bottom));
+      background: var(--bg-header);
+      border-top: 2px solid var(--card-edge);
+    }
+    .chat-input input {
+      flex: 1;
+      background: var(--card);
+      border: 1px solid var(--card-edge);
+      border-radius: 8px;
+      padding: 12px 14px;
+      color: var(--text);
+      font-size: 1rem;
+      outline: none;
+    }
+    .chat-input input:focus { border-color: var(--accent); }
+    .chat-input button {
+      background: var(--accent);
+      color: #1a1410;
+      border: none;
+      border-radius: 8px;
+      padding: 0 18px;
+      font-weight: 800;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    .chat-input button:disabled { opacity: 0.5; }
+  </style>
+</head>
+<body>
+
+  <!-- ================= HEADER ================= -->
+  <header>
+    <div class="brand">
+      <!-- Dépose ton logo dans assets/logo.png ; s'il est absent, il est masqué -->
+      <img src="/assets/logo.png" alt="DiggApp" onerror="this.style.display='none'">
+      <div>
+        <h1>DiggApp</h1>
+        <div class="tagline">creuse dans tes données</div>
+      </div>
+      <div class="counter" id="counter">…</div>
+    </div>
+    <div class="searchbar">
+      <input type="search" id="search" placeholder="Chercher dans ta collection…" autocomplete="off">
+    </div>
+  </header>
+
+  <!-- ================= FILTRES ================= -->
+  <div class="chips" id="chips"></div>
+
+  <div class="type-toggle" id="typeToggle">
+    <button data-type="" class="active">Tout</button>
+    <button data-type="image">📷 Images</button>
+    <button data-type="link">🔗 Liens</button>
+  </div>
+
+  <!-- ================= GRILLE ================= -->
+  <main>
+    <div class="grid" id="grid"></div>
+    <div class="empty" id="empty" style="display:none">Rien trouvé par ici. Creuse ailleurs ⛏️</div>
+  </main>
+
+  <!-- ================= CHAT IA ================= -->
+  <button class="chat-fab" id="chatFab" title="Chat IA">⛏️</button>
+
+  <div class="chat-panel" id="chatPanel">
+    <div class="chat-head">
+      <div>
+        <div class="t">Creuseur IA</div>
+        <div class="s">pose une question sur ta collection</div>
+      </div>
+      <button id="chatClose">✕</button>
+    </div>
+    <div class="chat-msgs" id="chatMsgs">
+      <div class="msg bot">Salut ! Demande-moi ce que tu veux retrouver : « mes recettes », « des idées déco », « qu'est-ce que j'ai sauvegardé ? »…</div>
+    </div>
+    <form class="chat-input" id="chatForm">
+      <input type="text" id="chatText" placeholder="Ta question…" autocomplete="off">
+      <button type="submit" id="chatSend">➤</button>
+    </form>
+  </div>
+
+  <script>
+    /* ===================================================================
+       ÉTAT GLOBAL — les filtres actifs de la grille
+       =================================================================== */
+    const state = { category: "", type: "", search: "" };
+
+    // Libellés affichés pour les plateformes de liens
+    const PLATFORM_LABELS = {
+      tiktok: "TikTok", instagram: "Instagram", pinterest: "Pinterest",
+      youtube: "YouTube", x: "X", web: "Web",
+    };
+
+    // Ordre d'affichage des chips (les catégories vides seront masquées)
+    const CATEGORIES = ["mode", "sport", "cuisine", "restaurant", "deco", "tech",
+                        "audiovisuel", "tuto", "film_serie", "inspiration", "autre"];
+
+    /* Petite protection : échappe le HTML avant insertion (sécurité + robustesse) */
+    function esc(s) {
+      const d = document.createElement("div");
+      d.textContent = s ?? "";
+      return d.innerHTML;
+    }
+
+    /* Couleur CSS d'une catégorie (retombe sur "autre" si inconnue) */
+    function catColor(cat) {
+      return CATEGORIES.includes(cat) ? `var(--cat-${cat})` : "var(--cat-autre)";
+    }
+
+    /* ===================================================================
+       DATE RELATIVE — "il y a 2h", "hier", "3 mars"
+       =================================================================== */
+    function relativeDate(iso) {
+      if (!iso) return "";
+      const then = new Date(iso);
+      const diff = (Date.now() - then.getTime()) / 1000; // secondes écoulées
+      if (diff < 60) return "à l'instant";
+      if (diff < 3600) return `il y a ${Math.floor(diff / 60)} min`;
+      if (diff < 86400) return `il y a ${Math.floor(diff / 3600)} h`;
+      if (diff < 172800) return "hier";
+      // Au-delà : date courte en français ("3 mars")
+      return then.toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
+    }
+
+    /* ===================================================================
+       CHARGEMENT + RENDU DE LA GRILLE
+       =================================================================== */
+    async function loadItems() {
+      const params = new URLSearchParams();
+      if (state.category) params.set("category", state.category);
+      if (state.type) params.set("type", state.type);
+      if (state.search) params.set("search", state.search);
+
+      const res = await fetch("/api/items?" + params.toString());
+      const data = await res.json();
+
+      renderChips(data.counts);
+      renderGrid(data.items);
+      document.getElementById("counter").textContent = data.counts.total + " ⛏️";
+    }
+
+    function renderChips(counts) {
+      const chips = document.getElementById("chips");
+      chips.innerHTML = "";
+
+      // Chip "Tout" en premier
+      const all = document.createElement("button");
+      all.className = "chip" + (state.category === "" ? " active" : "");
+      all.style.setProperty("--chip-color", "var(--accent)");
+      all.innerHTML = `Tout <span class="n">${counts.total}</span>`;
+      all.onclick = () => { state.category = ""; loadItems(); };
+      chips.appendChild(all);
+
+      // Une chip par catégorie non vide
+      for (const cat of CATEGORIES) {
+        const n = counts.by_category[cat];
+        if (!n) continue;
+        const b = document.createElement("button");
+        b.className = "chip" + (state.category === cat ? " active" : "");
+        b.style.setProperty("--chip-color", catColor(cat));
+        b.innerHTML = `${esc(cat)} <span class="n">${n}</span>`;
+        b.onclick = () => {
+          // Re-cliquer sur la chip active la désactive
+          state.category = (state.category === cat) ? "" : cat;
+          loadItems();
+        };
+        chips.appendChild(b);
+      }
+    }
+
+    function renderGrid(items) {
+      const grid = document.getElementById("grid");
+      const empty = document.getElementById("empty");
+      grid.innerHTML = "";
+      empty.style.display = items.length ? "none" : "block";
+
+      for (const item of items) {
+        grid.appendChild(buildCard(item));
+      }
+    }
+
+    /* Construit une carte (grande, pour la grille principale) */
+    function buildCard(item) {
+      const isLink = item.item_type === "link";
+      // Un lien = toute la carte est un <a> qui ouvre l'URL ; une image = <div>
+      const card = document.createElement(isLink && item.url ? "a" : "div");
+      card.className = "card";
+      if (isLink && item.url) {
+        card.href = item.url;
+        card.target = "_blank";       // nouvel onglet
+        card.rel = "noopener";
+      }
+
+      const typeLabel = isLink ? (PLATFORM_LABELS[item.platform] || "Web") : "📷";
+      const title = item.title || item.description || "Sans titre";
+      const tagsHtml = (item.tags || []).slice(0, 5)
+        .map(t => `<span class="tag">#${esc(t)}</span>`).join("");
+
+      // Visuel : image pour les captures, miniature pour les liens, sinon placeholder
+      const visual = item.image
+        ? `<img src="/${esc(item.image)}" alt="" loading="lazy">`
+        : `<div class="placeholder">${esc(typeLabel)}</div>`;
+
+      const catBadge = item.category
+        ? `<span class="badge cat" style="background:${catColor(item.category)}">${esc(item.category)}</span>`
+        : "";
+
+      card.innerHTML = `
+        <div class="visual">
+          ${visual}
+          ${catBadge}
+          <span class="badge type">${esc(typeLabel)}</span>
+        </div>
+        <div class="body">
+          <div class="title">${esc(title)}</div>
+          <div class="tags">${tagsHtml}</div>
+          <div class="date">${relativeDate(item.created_at)}</div>
+        </div>`;
+      return card;
+    }
+
+    /* ===================================================================
+       ÉCOUTEURS — recherche (avec debounce) et toggle de type
+       =================================================================== */
+    let searchTimer;
+    document.getElementById("search").addEventListener("input", (e) => {
+      // Debounce : attend 300 ms après la dernière frappe avant de chercher
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        state.search = e.target.value.trim();
+        loadItems();
+      }, 300);
+    });
+
+    document.getElementById("typeToggle").addEventListener("click", (e) => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      state.type = btn.dataset.type;
+      document.querySelectorAll("#typeToggle button")
+        .forEach(b => b.classList.toggle("active", b === btn));
+      loadItems();
+    });
+
+    /* ===================================================================
+       CHAT IA
+       =================================================================== */
+    const panel = document.getElementById("chatPanel");
+    document.getElementById("chatFab").onclick = () => {
+      panel.classList.add("open");
+      document.getElementById("chatText").focus();
+    };
+    document.getElementById("chatClose").onclick = () => panel.classList.remove("open");
+
+    const msgs = document.getElementById("chatMsgs");
+
+    function addMsg(cls, text) {
+      const el = document.createElement("div");
+      el.className = "msg " + cls;
+      el.textContent = text;
+      msgs.appendChild(el);
+      msgs.scrollTop = msgs.scrollHeight;   // scroll auto vers le bas
+      return el;
+    }
+
+    /* Mini-grille de résultats affichée sous la réponse du bot */
+    function addMsgItems(items) {
+      if (!items.length) return;
+      const wrap = document.createElement("div");
+      wrap.className = "msg-items";
+      for (const item of items.slice(0, 8)) {   // max 8 cartes dans le chat
+        const isLink = item.item_type === "link";
+        const a = document.createElement("a");
+        a.className = "mini-card";
+        a.target = "_blank";
+        a.rel = "noopener";
+        // Lien → son URL ; image → le fichier image lui-même
+        a.href = isLink && item.url ? item.url : (item.image ? "/" + item.image : "#");
+        const img = item.image ? `<img src="/${esc(item.image)}" alt="" loading="lazy">` : "";
+        a.innerHTML = `${img}
+          <div class="mc-body">
+            <div class="mc-cat" style="color:${catColor(item.category)}">${esc(item.category || "?")}</div>
+            <div class="mc-title">${esc(item.title || item.description || "")}</div>
+          </div>`;
+        wrap.appendChild(a);
+      }
+      msgs.appendChild(wrap);
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    document.getElementById("chatForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const input = document.getElementById("chatText");
+      const send = document.getElementById("chatSend");
+      const question = input.value.trim();
+      if (!question) return;
+
+      addMsg("user", question);
+      input.value = "";
+      send.disabled = true;
+      const thinking = addMsg("bot", "⛏️ Je creuse…");
+
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: question }),
+        });
+        const data = await res.json();
+        thinking.textContent = data.response;
+        addMsgItems(data.items || []);
+      } catch (err) {
+        thinking.textContent = "Impossible de joindre le serveur, réessaie.";
+      } finally {
+        send.disabled = false;
+      }
+    });
+
+    /* Premier chargement */
+    loadItems();
+  </script>
+</body>
+</html>
