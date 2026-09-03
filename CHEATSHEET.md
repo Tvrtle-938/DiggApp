@@ -14,7 +14,11 @@ source venv/bin/activate
 python3 bot.py
 # → Ctrl + C pour l'arrêter
 
-# 4. Lancer Claude Code (dans un AUTRE onglet)
+# 4. Lancer l'interface web (dans un AUTRE onglet, venv activé aussi)
+python3 web.py
+# → puis ouvrir http://localhost:5001 dans le navigateur
+
+# 5. Lancer Claude Code (dans encore un AUTRE onglet)
 claude
 # → /exit ou Ctrl + D pour quitter Claude Code
 ```
@@ -101,12 +105,139 @@ Une fois dedans :
 ```
 hub-ia/
 ├── bot.py              ← Le code du bot Telegram
-├── .env                ← Les secrets (token Telegram, futures clés API)
+├── .env                ← Les secrets (token Telegram, clé Gemini)
 ├── .gitignore          ← Protège les secrets et fichiers inutiles
 ├── requirements.txt    ← Liste des briques Python à installer
 ├── hub.db              ← La base de données SQLite (créée au 1er lancement)
 ├── venv/               ← L'environnement virtuel (caisse à outils Python)
 ├── data/
 │   └── captures/       ← Les images reçues via Telegram
+├── web.py              ← Le serveur de l'interface web (DiggApp)
+├── agent.py            ← L'agent conversationnel (recherche dans la collection)
+├── content_studio.py   ← Le Studio : posts, scripts et prompts IA
+├── ai_engine.py        ← Moteur IA unifié (Ollama local / Gemini cloud)
+├── semantic_search.py  ← Recherche par similarité sur les embeddings
+├── embeddings.py       ← Calcul des embeddings (nomic-embed-text)
+├── reprocess.py        ← Retraitement des éléments déjà en base
+├── templates/
+│   └── index.html      ← Toute l'interface web (HTML + CSS + JS)
+├── GUIDE_LANCEMENT.md  ← Comment lancer l'app au quotidien
+├── PLAN_SOUTENANCE.md  ← Plan de travail avant la soutenance
 └── CHEATSHEET.md       ← Ce fichier !
 ```
+
+---
+
+## 🛑 Arrêter un programme qui tourne
+
+> ⚠️ **Piège Mac** : c'est **Ctrl (⌃) + C**, PAS **Cmd (⌘) + C**. Cmd + C = copier. La touche `ctrl` est en bas à gauche du clavier, à côté de `option`.
+
+Il faut d'abord **cliquer dans l'onglet où le programme tourne** pour l'activer, puis faire Ctrl + C. Chaque programme s'arrête dans son propre onglet (le bot et le serveur web sont deux processus séparés).
+
+```bash
+# Si un onglet ne répond vraiment plus, tuer le processus depuis un autre onglet
+pkill -f "python3 bot.py"    # arrête le bot Telegram
+pkill -f "python3 web.py"    # arrête le serveur web
+
+# Vérifier qu'il ne reste rien sur le port 5001
+lsof -i :5001
+# → aucune réponse = le serveur est bien arrêté
+```
+
+---
+
+## 🌐 Interface web (DiggApp)
+
+```bash
+python3 web.py                 # lance le serveur (venv activé)
+PORT=5002 python3 web.py       # si le port 5001 est déjà occupé
+```
+
+- Sur le Mac : **http://localhost:5001**
+- Depuis le téléphone (même wifi) : `http://<ip-du-mac>:5001` — l'IP s'affiche au lancement
+- Le port 5000 est pris par AirPlay sur macOS, d'où le 5001 par défaut
+
+---
+
+## 🦙 Ollama (l'IA en local)
+
+```bash
+ollama list                    # voir les modèles installés (et vérifier qu'Ollama répond)
+ollama serve                   # démarrer Ollama s'il ne tourne pas
+ollama pull nom_du_modele      # télécharger un modèle
+```
+
+Les 3 modèles utilisés par le projet :
+
+- `qwen2.5vl:7b` — analyse des images et des liens au moment de la capture
+- `nomic-embed-text` — embeddings, **indispensable** à la recherche sémantique
+- `llama3.2` — agent conversationnel de secours (Gemini cloud est prioritaire)
+
+> ⚠️ Si Ollama ne tourne pas quand tu envoies des captures au bot, elles sont stockées **sans embedding** et la recherche ne les retrouvera jamais. Réparation : `venv/bin/python reprocess.py --embeddings-only`
+
+---
+
+## 🔁 Retraiter la base
+
+```bash
+venv/bin/python reprocess.py                    # analyse les éléments sans catégorie
+venv/bin/python reprocess.py --all              # tout retraiter (analyse IA + embeddings)
+venv/bin/python reprocess.py --embeddings-only  # régénérer seulement les embeddings (rapide)
+```
+
+---
+
+## 🤖 Commandes du bot Telegram
+
+- `/start` — message d'accueil et rappel des commandes
+- `/moteur` — voir le moteur IA actif ; `/moteur local | cloud | auto` pour le changer
+- `/stats` — statistiques de la collection (par type et par catégorie)
+- `/post <canal> <sujet>` — génère un post prêt à publier (ex. `/post twitter sneakers tendance`)
+
+---
+
+## 📝 Studio de contenu
+
+L'onglet 📝 de l'interface web génère, à partir de ta collection : des **posts** (X, Instagram, LinkedIn, newsletter), des **scripts de tournage** (TikTok, Reels, Shorts) et des **prompts pour IA générative** (image ou vidéo). Les brouillons y sont éditables, puis marqués publiés.
+
+```sql
+-- Voir les brouillons générés (dans sqlite3 hub.db)
+SELECT id, content_type, channel, status, topic FROM drafts ORDER BY created_at DESC;
+```
+
+---
+
+## 🌿 Git — sauvegarder ton travail
+
+```bash
+git status                     # voir ce qui a changé
+git add -A                     # préparer tous les changements
+git commit -m "message clair"  # enregistrer une version
+git log --oneline              # historique des versions
+```
+
+Vérifier que les secrets sont bien protégés :
+
+```bash
+git check-ignore -v .env       # dit si le fichier est ignoré, et par quelle règle
+git ls-files | grep -i env     # liste ce que git suit DÉJÀ ← le point critique
+```
+
+> Un `.gitignore` ne protège que les fichiers **pas encore ajoutés**. Si un `.env` a été commité une fois, la clé reste dans l'historique même après coup — il faut alors la révoquer et en générer une nouvelle.
+
+**Erreur `Unable to create '.git/index.lock': File exists`** : un processus git a planté et laissé un fichier verrou. Une fois certain qu'aucune commande git ne tourne :
+
+```bash
+rm -f .git/index.lock
+```
+
+---
+
+## 🧭 Réflexes à retenir
+
+- `(venv)` absent au début de la ligne → rien ne marchera. Toujours `source venv/bin/activate`.
+- Un onglet = un programme. Le bot, le serveur web et Claude Code tournent chacun dans le leur.
+- **Ctrl** pour agir sur le terminal (arrêter, sauvegarder dans nano), **Cmd** pour agir sur la fenêtre (onglet, copier, fermer).
+- Flèche ↑ dans le terminal = rappeler la commande précédente (évite de tout retaper).
+- `Tab` complète automatiquement un nom de fichier ou de dossier commencé.
+- Commiter après chaque étape qui marche : c'est le seul vrai filet de sécurité.
