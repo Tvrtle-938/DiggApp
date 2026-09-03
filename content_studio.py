@@ -53,6 +53,68 @@ DEFAULT_PERSONA = (
 )
 
 # ---------------------------------------------------------------------------
+# Ligne éditoriale paramétrable (cible/persona, ton, engagements RSE) —
+# stockée dans une table settings clé/valeur, DEFAULT_PERSONA en défaut tant
+# que rien n'est enregistré. Injectée dans les trois constructeurs de prompt.
+# ---------------------------------------------------------------------------
+
+EDITORIAL_DEFAULTS = {"persona": DEFAULT_PERSONA, "tone": "", "rse": ""}
+_EDITORIAL_KEY = "editorial_line"
+
+
+def _ensure_settings_table():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+    conn.commit()
+    conn.close()
+
+
+def get_editorial_line() -> dict:
+    """Ligne éditoriale enregistrée, complétée par les défauts champ par champ."""
+    _ensure_settings_table()
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (_EDITORIAL_KEY,)).fetchone()
+    conn.close()
+    saved = {}
+    if row:
+        try:
+            saved = json.loads(row[0]) or {}
+        except (json.JSONDecodeError, TypeError):
+            saved = {}
+    line = dict(EDITORIAL_DEFAULTS)
+    line.update({k: str(v).strip() for k, v in saved.items() if k in EDITORIAL_DEFAULTS})
+    # Une persona vidée retombe sur le défaut : les prompts en ont toujours besoin
+    if not line["persona"]:
+        line["persona"] = DEFAULT_PERSONA
+    return line
+
+
+def set_editorial_line(persona=None, tone=None, rse=None) -> dict:
+    """Met à jour les champs fournis (None = inchangé) et renvoie la ligne complète."""
+    line = get_editorial_line()
+    for key, value in (("persona", persona), ("tone", tone), ("rse", rse)):
+        if value is not None:
+            line[key] = str(value).strip()
+    _ensure_settings_table()
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                 (_EDITORIAL_KEY, json.dumps(line, ensure_ascii=False)))
+    conn.commit()
+    conn.close()
+    return get_editorial_line()
+
+
+def _editorial_block() -> str:
+    """Bloc "ligne éditoriale" injecté en tête des trois prompts."""
+    line = get_editorial_line()
+    parts = [f"Ta cible : {line['persona']}."]
+    if line["tone"]:
+        parts.append(f"Ton éditorial à respecter : {line['tone']}.")
+    if line["rse"]:
+        parts.append(f"Engagements éditoriaux (RSE) à respecter impérativement : {line['rse']}.")
+    return "\n".join(parts)
+
+# ---------------------------------------------------------------------------
 # Cibles par type de contenu — contraintes réellement appliquées quand elles
 # existent (longueur de post), jamais seulement suggérées au modèle.
 # ---------------------------------------------------------------------------
@@ -216,7 +278,8 @@ def _build_post_prompt(topic: str, cfg: dict, sources: list) -> str:
         "Pas de limite stricte de caractères, mais reste concis et adapté au canal."
     )
     return f"""Tu es le rédacteur de contenu de DiggApp, une application de curation personnelle \
-(mode, sport, cuisine, déco, tech...). Ta cible : {DEFAULT_PERSONA}.
+(mode, sport, cuisine, déco, tech...).
+{_editorial_block()}
 
 À partir UNIQUEMENT des éléments réels ci-dessous, sauvegardés dans la collection, rédige un \
 post prêt à publier sur : {cfg['label']}.
@@ -247,7 +310,8 @@ Réponds avec UNIQUEMENT un objet JSON valide (pas de markdown, pas d'explicatio
 def _build_script_prompt(topic: str, cfg: dict, sources: list) -> str:
     lines = "\n".join(_item_line(r) for r in sources)
     return f"""Tu es scénariste de contenu pour DiggApp, une application de curation personnelle \
-(mode, sport, cuisine, déco, tech...). Ta cible : {DEFAULT_PERSONA}.
+(mode, sport, cuisine, déco, tech...).
+{_editorial_block()}
 
 À partir UNIQUEMENT des éléments réels ci-dessous, sauvegardés dans la collection, construis un \
 script de tournage pour une vidéo au format : {cfg['label']} (durée indicative : {cfg['duree']}).
@@ -281,7 +345,8 @@ Réponds avec UNIQUEMENT un objet JSON valide (pas de markdown, pas d'explicatio
 def _build_ai_prompt_prompt(topic: str, cfg: dict, sources: list) -> str:
     lines = "\n".join(_item_line(r) for r in sources)
     return f"""Tu es directeur artistique pour DiggApp, une application de curation personnelle \
-(mode, sport, cuisine, déco, tech...). Ta cible : {DEFAULT_PERSONA}.
+(mode, sport, cuisine, déco, tech...).
+{_editorial_block()}
 
 À partir UNIQUEMENT des éléments réels ci-dessous, rédige un prompt prêt à être copié-collé dans un \
 outil de génération IA pour produire : {cfg['label']}.

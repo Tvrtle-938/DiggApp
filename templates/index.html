@@ -331,6 +331,163 @@
       outline-offset: -2px;
     }
 
+    /* Bouton "⋯" d'accès au menu d'élément — apparaît au survol ou au focus
+       (accès clavier), toujours visible sur écran tactile */
+    .edit-btn {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      width: 34px;
+      height: 34px;
+      border-radius: 6px;
+      border: 1px solid var(--card-edge);
+      background: rgba(20, 16, 13, 0.85);
+      color: var(--text);
+      font-size: 1rem;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+    .card:hover .edit-btn,
+    .card:focus-within .edit-btn { opacity: 1; }
+    .edit-btn:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
+    @media (pointer: coarse) { .edit-btn { opacity: 0.85; } }
+
+    /* Appui long tactile : léger retour visuel pendant la détection, et pas de
+       menu d'aperçu natif iOS sur les cartes-liens */
+    .card { -webkit-touch-callout: none; }
+    .card.pressing {
+      transform: scale(0.97);
+      border-color: var(--accent);
+      transition: transform 0.2s ease;
+    }
+
+    /* Menu contextuel d'un élément (clic droit / appui long / bouton ⋯) */
+    .item-menu {
+      position: fixed;
+      z-index: 120;
+      display: flex;
+      flex-direction: column;
+      min-width: 170px;
+      background: var(--bg-header);
+      border: 1px solid var(--card-edge);
+      border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+    }
+    .item-menu button {
+      background: transparent;
+      border: none;
+      text-align: left;
+      padding: 10px 14px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      font-family: inherit;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .item-menu button:hover { background: var(--card); }
+    .item-menu button:focus-visible {
+      background: var(--card);
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+
+    /* Modale d'édition d'un élément */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 130;
+      background: rgba(10, 8, 6, 0.72);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--bg-header);
+      border: 1px solid var(--card-edge);
+      border-radius: 10px;
+      width: min(100%, 460px);
+      max-height: calc(100vh - 32px);
+      max-height: calc(100dvh - 32px);
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .modal h3 { color: var(--accent); font-size: 1rem; }
+
+    /* Champs étiquetés — partagés entre la modale et la ligne éditoriale */
+    .field-label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-dim);
+    }
+    .field-label input,
+    .field-label textarea,
+    .field-label select {
+      background: var(--card);
+      border: 1px solid var(--card-edge);
+      border-radius: 6px;
+      padding: 10px 12px;
+      color: var(--text);
+      font-size: 1rem;          /* 16px min : évite le zoom auto iOS */
+      font-family: inherit;
+      outline: none;
+      resize: vertical;
+    }
+    .field-label input:focus,
+    .field-label textarea:focus,
+    .field-label select:focus { border-color: var(--accent); }
+
+    .modal .preview {
+      width: 100%;
+      max-height: 180px;
+      object-fit: contain;
+      background: var(--bg);
+      border: 1px solid var(--card-edge);
+      border-radius: 6px;
+    }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .modal-actions button {
+      background: transparent;
+      border: 1px solid var(--card-edge);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 10px 16px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .modal-actions button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #1a1410;
+    }
+    .modal-actions button:disabled { opacity: 0.5; }
+    .modal-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+    /* Panneau ligne éditoriale en tête du Studio */
+    .editorial-box {
+      background: var(--card);
+      border: 1px solid var(--card-edge);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .editorial-box summary {
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 0.9rem;
+      color: var(--accent);
+    }
+    .editorial-box form { margin-top: 10px; }
+    .editorial-saved { font-size: 0.78rem; color: var(--cat-sport); display: none; }
+
     .card .body { padding: 12px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
 
     .card .title {
@@ -620,6 +777,7 @@
       .digg::before, .digg-hero, .digg-sugg, .digg-spacer { transition: none; }
       .digg .msg, .digg .msg-items { animation: none; }
       .digg-wait .dot { animation: none; opacity: 0.6; }
+      .card.pressing { transform: none; }
     }
 
     /* =====================================================================
@@ -824,6 +982,22 @@
       <button id="studioClose">✕</button>
     </div>
     <div class="studio-body">
+      <details class="editorial-box" id="editorialBox">
+        <summary>🎯 Ligne éditoriale</summary>
+        <form class="studio-form" id="editorialForm">
+          <label class="field-label">Cible / persona
+            <textarea id="edPersona" rows="3" placeholder="À qui s'adressent tes contenus…"></textarea>
+          </label>
+          <label class="field-label">Ton
+            <input type="text" id="edTone" placeholder="ex. complice et direct, sans jargon" autocomplete="off">
+          </label>
+          <label class="field-label">Engagements RSE
+            <input type="text" id="edRse" placeholder="ex. jamais d'incitation à la surconsommation" autocomplete="off">
+          </label>
+          <button type="submit" id="editorialSave">Enregistrer</button>
+          <span class="editorial-saved" id="editorialSaved">✓ Ligne éditoriale enregistrée</span>
+        </form>
+      </details>
       <form class="studio-form" id="studioForm">
         <input type="text" id="studioTopic" placeholder="Sujet (ex. chaussures tendance hiver)" autocomplete="off">
         <select id="studioType">
@@ -837,6 +1011,33 @@
       <div class="draft-error" id="studioError"></div>
       <div id="studioDrafts"></div>
     </div>
+  </div>
+
+  <!-- ================= MODALE D'ÉDITION D'UN ÉLÉMENT ================= -->
+  <div class="modal-overlay" id="editOverlay">
+    <form class="modal" id="editForm">
+      <h3>Modifier l'élément</h3>
+      <label class="field-label">Titre
+        <input type="text" id="editTitle" autocomplete="off">
+      </label>
+      <label class="field-label">Tags (séparés par des virgules)
+        <input type="text" id="editTags" autocomplete="off">
+      </label>
+      <label class="field-label">Description / contexte
+        <textarea id="editDesc" rows="3"></textarea>
+      </label>
+      <label class="field-label">Catégorie
+        <select id="editCategory"></select>
+      </label>
+      <label class="field-label">Image
+        <img class="preview" id="editPreview" alt="Aperçu de l'image actuelle" style="display:none">
+        <input type="file" id="editImage" accept="image/jpeg,image/png,image/webp,image/gif">
+      </label>
+      <div class="modal-actions">
+        <button type="button" id="editCancel">Annuler</button>
+        <button type="submit" class="primary" id="editSave">Enregistrer</button>
+      </div>
+    </form>
   </div>
 
   <script>
@@ -929,7 +1130,8 @@
     }
 
     function renderGrid(items) {
-      closeCatMenu();   // le re-rendu détruirait le menu sans son écouteur global
+      closeCatMenu();   // le re-rendu détruirait les menus sans leurs écouteurs globaux
+      closeItemMenu();
       const grid = document.getElementById("grid");
       const empty = document.getElementById("empty");
       grid.innerHTML = "";
@@ -972,6 +1174,7 @@
           ${visual}
           ${catBadge}
           <span class="badge type">${esc(typeLabel)}</span>
+          <button type="button" class="edit-btn" title="Modifier l'élément" aria-haspopup="menu">⋯</button>
         </div>
         <div class="body">
           <div class="title">${esc(title)}</div>
@@ -986,6 +1189,60 @@
         e.stopPropagation();
         openCatMenu(card.querySelector(".visual"), item, e.currentTarget);
       });
+
+      // Menu d'élément — trois accès, un seul menu :
+      // bouton ⋯ (souris + clavier), clic droit (desktop), appui long (tactile)
+      const editBtn = card.querySelector(".edit-btn");
+      editBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const r = editBtn.getBoundingClientRect();
+        openItemMenu(item, r.left, r.bottom + 4, editBtn);
+      });
+
+      // preventDefault seulement ici : le menu natif reste disponible ailleurs
+      card.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        openItemMenu(item, e.clientX, e.clientY, card.querySelector(".edit-btn"));
+      });
+
+      // Appui long (~500 ms) : annulé si le doigt bouge (scroll) ou se lève
+      // avant. Le navigateur envoie pointercancel quand il prend la main pour
+      // scroller, ce qui distingue naturellement l'appui long du défilement.
+      let pressTimer = null;
+      let pressStart = null;
+      card.addEventListener("pointerdown", (e) => {
+        if (e.pointerType !== "touch") return;
+        pressStart = { x: e.clientX, y: e.clientY };
+        card.classList.add("pressing");
+        pressTimer = setTimeout(() => {
+          pressTimer = null;
+          card.classList.remove("pressing");
+          suppressNextClick = true;   // le "tap" de fin ne doit pas ouvrir le lien
+          openItemMenu(item, pressStart.x, pressStart.y, card.querySelector(".edit-btn"));
+        }, 500);
+      });
+      const cancelPress = () => {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+        card.classList.remove("pressing");
+      };
+      card.addEventListener("pointerup", cancelPress);
+      card.addEventListener("pointercancel", cancelPress);
+      card.addEventListener("pointermove", (e) => {
+        if (pressTimer && pressStart &&
+            Math.hypot(e.clientX - pressStart.x, e.clientY - pressStart.y) > 10) {
+          cancelPress();
+        }
+      });
+      // Clic résiduel juste après un appui long : neutralisé
+      card.addEventListener("click", (e) => {
+        if (suppressNextClick) {
+          e.preventDefault();
+          e.stopPropagation();
+          suppressNextClick = false;
+        }
+      }, true);
       return card;
     }
 
@@ -1070,6 +1327,160 @@
         badge.focus();
       }
     }
+
+    /* ===================================================================
+       MENU D'ÉLÉMENT (clic droit / appui long / bouton ⋯)
+       =================================================================== */
+    let itemMenu = null;
+    let suppressNextClick = false;
+
+    function closeItemMenu() {
+      if (!itemMenu) return;
+      itemMenu.remove();
+      itemMenu = null;
+      document.removeEventListener("click", onDocClickCloseItemMenu);
+    }
+
+    function onDocClickCloseItemMenu(e) {
+      if (itemMenu && !itemMenu.contains(e.target)) closeItemMenu();
+    }
+
+    function openItemMenu(item, x, y, opener) {
+      closeItemMenu();
+      closeCatMenu();
+      const menu = document.createElement("div");
+      menu.className = "item-menu";
+      menu.setAttribute("role", "menu");
+
+      const entries = [["✏️ Modifier", () => openEditModal(item, opener)]];
+      if (item.item_type === "link" && item.url) {
+        entries.push(["🔗 Ouvrir le lien", () => window.open(item.url, "_blank", "noopener")]);
+      }
+      for (const [label, action] of entries) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.setAttribute("role", "menuitem");
+        b.textContent = label;
+        b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); closeItemMenu(); action(); };
+        menu.appendChild(b);
+      }
+
+      // Clavier : Échap referme (focus rendu au bouton ⋯), flèches pour naviguer
+      menu.addEventListener("keydown", (e) => {
+        const buttons = [...menu.querySelectorAll("button")];
+        const idx = buttons.indexOf(document.activeElement);
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          closeItemMenu();
+          if (opener) opener.focus();
+        } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          const step = e.key === "ArrowDown" ? 1 : -1;
+          buttons[(idx + step + buttons.length) % buttons.length].focus();
+        }
+      });
+
+      document.body.appendChild(menu);
+      // Position clampée dans la fenêtre (clic droit possible près d'un bord)
+      const r = menu.getBoundingClientRect();
+      menu.style.left = Math.max(8, Math.min(x, window.innerWidth - r.width - 8)) + "px";
+      menu.style.top = Math.max(8, Math.min(y, window.innerHeight - r.height - 8)) + "px";
+      itemMenu = menu;
+      menu.querySelector("button").focus();
+      document.addEventListener("click", onDocClickCloseItemMenu);
+    }
+
+    /* ===================================================================
+       MODALE D'ÉDITION D'UN ÉLÉMENT
+       =================================================================== */
+    const editOverlay = document.getElementById("editOverlay");
+    const editPreview = document.getElementById("editPreview");
+    let editItem = null;      // élément en cours d'édition
+    let editOpener = null;    // à qui rendre le focus à la fermeture
+
+    // Options du sélecteur de catégorie (construit une seule fois)
+    document.getElementById("editCategory").innerHTML =
+      CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join("");
+
+    function openEditModal(item, opener) {
+      editItem = item;
+      editOpener = opener || null;
+      document.getElementById("editTitle").value = item.title || "";
+      document.getElementById("editTags").value = (item.tags || []).join(", ");
+      document.getElementById("editDesc").value = item.description || "";
+      document.getElementById("editCategory").value =
+        CATEGORIES.includes(item.category) ? item.category : "autre";
+      document.getElementById("editImage").value = "";
+      if (item.image) {
+        editPreview.src = "/" + item.image;
+        editPreview.style.display = "block";
+      } else {
+        editPreview.style.display = "none";
+      }
+      editOverlay.classList.add("open");
+      document.getElementById("editTitle").focus();
+    }
+
+    function closeEditModal() {
+      editOverlay.classList.remove("open");
+      editItem = null;
+      if (editOpener) {
+        editOpener.focus();
+        editOpener = null;
+      }
+    }
+
+    // Aperçu immédiat quand une nouvelle image est choisie
+    document.getElementById("editImage").addEventListener("change", (e) => {
+      const f = e.target.files[0];
+      if (f) {
+        editPreview.src = URL.createObjectURL(f);
+        editPreview.style.display = "block";
+      }
+    });
+
+    document.getElementById("editCancel").onclick = closeEditModal;
+    editOverlay.addEventListener("click", (e) => {
+      if (e.target === editOverlay) closeEditModal();
+    });
+
+    // Clavier : Échap ferme, Tab reste dans la modale
+    editOverlay.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { closeEditModal(); return; }
+      if (e.key !== "Tab") return;
+      const focusables = [...editOverlay.querySelectorAll("input, textarea, select, button")];
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
+
+    document.getElementById("editForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!editItem) return;
+      const save = document.getElementById("editSave");
+      save.disabled = true;
+      try {
+        // FormData : mêmes champs que le JSON, plus le fichier image éventuel
+        const fd = new FormData();
+        fd.append("title", document.getElementById("editTitle").value.trim());
+        fd.append("tags", document.getElementById("editTags").value.trim());
+        fd.append("description", document.getElementById("editDesc").value.trim());
+        fd.append("category", document.getElementById("editCategory").value);
+        const file = document.getElementById("editImage").files[0];
+        if (file) fd.append("image", file);
+
+        const res = await fetch(`/api/items/${editItem.id}`, { method: "PUT", body: fd });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || "réponse invalide");
+        closeEditModal();
+        loadItems();    // vignette + chips resynchronisées sans recharger la page
+      } catch (err) {
+        console.error("Enregistrement impossible :", err);
+      } finally {
+        save.disabled = false;
+      }
+    });
 
     /* ===================================================================
        ÉCOUTEURS — recherche (avec debounce) et toggle de type
@@ -1206,9 +1617,44 @@
 
     document.getElementById("studioFab").onclick = async () => {
       studioPanel.classList.add("open");
+      loadEditorial();
       await loadTargets(studioTypeEl.value);
       loadDrafts();
     };
+
+    /* --- Ligne éditoriale : chargée à l'ouverture, enregistrée à la demande --- */
+    let editorialLoaded = false;
+
+    async function loadEditorial() {
+      if (editorialLoaded) return;
+      try {
+        const data = await (await fetch("/api/editorial-line")).json();
+        document.getElementById("edPersona").value = data.persona || "";
+        document.getElementById("edTone").value = data.tone || "";
+        document.getElementById("edRse").value = data.rse || "";
+        editorialLoaded = true;
+      } catch (err) { /* panneau non bloquant : le Studio reste utilisable */ }
+    }
+
+    document.getElementById("editorialForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const saved = document.getElementById("editorialSaved");
+      try {
+        await fetch("/api/editorial-line", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            persona: document.getElementById("edPersona").value,
+            tone: document.getElementById("edTone").value,
+            rse: document.getElementById("edRse").value,
+          }),
+        });
+        saved.style.display = "inline";
+        setTimeout(() => { saved.style.display = "none"; }, 2500);
+      } catch (err) {
+        console.error("Ligne éditoriale non enregistrée :", err);
+      }
+    });
     document.getElementById("studioClose").onclick = () => studioPanel.classList.remove("open");
 
     async function loadTargets(type) {

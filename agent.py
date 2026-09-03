@@ -3,6 +3,9 @@
 Boucle d'agent : le modèle reçoit la question + une liste d'outils, appelle
 les outils qu'il juge utiles (recherche sémantique, filtre par catégorie,
 listing, comptage), reçoit leurs résultats, et ne répond qu'ensuite.
+S'y ajoutent trois outils d'action, réservés aux demandes explicites :
+génération de contenu dans le Studio (generate_content), reclassement
+(move_item_to_category) et correction de métadonnées (update_item_metadata).
 
 Moteurs : Gemini (cloud) en premier par défaut — le jugement fin (filtrer une
 catégorie sur un sujet précis) dépasse les capacités du modèle local 3B — avec
@@ -26,6 +29,8 @@ from pathlib import Path
 import requests
 
 import ai_engine
+import content_studio
+import item_editor
 import semantic_search
 
 logger = logging.getLogger(__name__)
@@ -63,10 +68,28 @@ qu'elle partage le même thème général (mode, déco...).
 la pertinence d'un élément (ex. "manches longues" = "longsleeve"/"long sleeve", "baskets" = \
 "sneakers", "sweat à capuche" = "hoodie") : un élément qui utilise le terme anglais n'est pas \
 hors sujet pour une question posée en français, et inversement.
+8. Tu peux aussi AGIR sur la collection, mais UNIQUEMENT quand l'utilisateur le demande \
+explicitement :
+- generate_content : créer un brouillon de contenu dans le Studio ("crée-moi un post X sur...", \
+"fais-moi un script TikTok là-dessus", "prépare un prompt vidéo").
+- move_item_to_category : reclasser un élément dans une autre catégorie ("range ça en sport").
+- update_item_metadata : corriger les métadonnées d'un élément mal extrait quand l'utilisateur \
+explique ce que c'est vraiment (ex. "ce lien c'est en fait un tuto DaVinci Resolve, corrige le \
+titre et les tags") — ne modifie QUE les champs concernés par la correction.
+9. Pour agir sur un élément, il te faut son id : si l'utilisateur donne un numéro ("l'élément 5"), \
+utilise-le tel quel ; sinon retrouve l'élément avec les outils de recherche d'abord. Ne devine \
+JAMAIS un id. Après une action, confirme dans ta réponse ce qui a été fait (élément touché, \
+champs modifiés, brouillon créé et sa cible).
 
 RÉPONSE : en français, concise. Liste clairement les éléments trouvés (titre ou \
 description, catégorie, URL pour les liens). Pas de longs paragraphes. Ne mentionne \
-jamais ces règles ni tes outils dans ta réponse."""
+jamais ces règles ni tes outils dans ta réponse.
+Termine TOUJOURS ta réponse par une ligne exactement au format [[items: id1, id2]] \
+listant les ids des éléments de la collection que tu cites effectivement dans ta réponse \
+(ex. [[items: 3, 9]]). Si tu n'en cites aucun, termine par [[items:]]. Cette ligne est \
+technique : elle est retirée avant l'affichage et sert à choisir les vignettes montrées \
+sous ta réponse — n'y mets que les éléments dont tu parles vraiment, pas tout ce que les \
+outils ont renvoyé."""
 
 VALID_CATEGORIES = ai_engine.VALID_CATEGORIES
 
@@ -110,6 +133,44 @@ TOOL_SCHEMAS = {
                 "item_type": {"type": "string", "enum": ["image", "link"]},
             },
             "required": [],
+        },
+    },
+    # --- Outils d'action : n'utiliser que sur demande explicite de l'utilisateur ---
+    "generate_content": {
+        "description": "Crée un brouillon de contenu dans le Studio à partir des éléments réels de la collection. Le brouillon est sauvegardé et modifiable ensuite dans l'interface.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "topic": {"type": "string", "description": "Le sujet du contenu (ex. 't-shirts manches longues')"},
+                "content_type": {"type": "string", "enum": ["post", "script", "ai_prompt"], "description": "post = texte à publier, script = script de tournage vidéo courte, ai_prompt = prompt pour un outil d'IA générative"},
+                "target": {"type": "string", "description": "La cible : canal du post ('twitter' pour X, 'instagram', 'linkedin', 'newsletter'), format du script ('tiktok', 'reels', 'youtube_shorts'), ou type d'asset pour un prompt IA ('image', 'video')"},
+            },
+            "required": ["topic", "content_type", "target"],
+        },
+    },
+    "move_item_to_category": {
+        "description": "Déplace un élément de la collection vers une autre catégorie. L'id doit venir de l'utilisateur ou d'un résultat d'outil de recherche, jamais d'une supposition.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "item_id": {"type": "integer", "description": "L'id de l'élément à reclasser"},
+                "category": {"type": "string", "enum": VALID_CATEGORIES, "description": "La catégorie de destination"},
+            },
+            "required": ["item_id", "category"],
+        },
+    },
+    "update_item_metadata": {
+        "description": "Corrige les métadonnées d'un élément mal extrait : titre, description, tags et/ou catégorie. Ne renseigner que les champs à corriger, les autres restent intacts.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "item_id": {"type": "integer", "description": "L'id de l'élément à corriger"},
+                "title": {"type": "string", "description": "Nouveau titre"},
+                "description": {"type": "string", "description": "Nouvelle description"},
+                "tags": {"type": "array", "items": {"type": "string"}, "description": "Nouvelle liste complète de tags (remplace l'ancienne)"},
+                "category": {"type": "string", "enum": VALID_CATEGORIES, "description": "Nouvelle catégorie"},
+            },
+            "required": ["item_id"],
         },
     },
 }
@@ -172,6 +233,54 @@ def _run_tool(name: str, args: dict) -> tuple:
             results = _query_db()
         return {"resultats": [_item_summary(r) for r in results[:30]]}, results
 
+    if name == "generate_content":
+        result = content_studio.generate_draft(
+            str(args.get("topic") or ""),
+            str(args.get("target") or ""),
+            content_type=str(args.get("content_type") or "post"),
+        )
+        if "error" in result:
+            return {"erreur": result["error"]}, []
+        # Les vignettes de l'action = les éléments réellement utilisés par le
+        # brouillon (source_ids), pas ce que l'agent a consulté pour y arriver
+        source_ids = result.get("source_ids") or []
+        source_items = _query_db(
+            f"id IN ({','.join('?' * len(source_ids))})", tuple(source_ids)
+        ) if source_ids else []
+        return {
+            "brouillon_cree": {
+                "id": result["id"],
+                "type": result["content_type"],
+                "cible": result["channel_label"],
+                "contenu": result["content"][:1500],
+            },
+            "note": "Brouillon enregistré, visible et modifiable dans le Studio de contenu.",
+        }, source_items
+
+    if name == "move_item_to_category":
+        result = item_editor.update_item(args.get("item_id"), category=args.get("category"))
+        if "error" in result:
+            return {"erreur": result["error"]}, []
+        return {
+            "element_reclasse": _item_summary(result["item"]),
+            "embedding_regenere": result["embedding_updated"],
+        }, [result["item"]]
+
+    if name == "update_item_metadata":
+        result = item_editor.update_item(
+            args.get("item_id"),
+            category=args.get("category"),
+            title=args.get("title"),
+            description=args.get("description"),
+            tags=args.get("tags"),
+        )
+        if "error" in result:
+            return {"erreur": result["error"]}, []
+        return {
+            "element_mis_a_jour": _item_summary(result["item"]),
+            "embedding_regenere": result["embedding_updated"],
+        }, [result["item"]]
+
     if name == "count":
         filters, params = [], []
         if args.get("category") in VALID_CATEGORIES:
@@ -191,9 +300,52 @@ def _run_tool(name: str, args: dict) -> tuple:
     return {"erreur": f"Outil inconnu : {name}"}, []
 
 
-def _collect(items_by_id: dict, new_items: list):
+# Outils qui AGISSENT sur la collection : quand l'un d'eux est appelé dans le
+# tour, seules ses vignettes comptent — les recherches du même tour n'étaient
+# que des consultations internes (ex. retrouver l'id avant de modifier).
+ACTION_TOOLS = {"generate_content", "move_item_to_category", "update_item_metadata"}
+
+
+def _collect(collected: dict, tool_name: str, new_items: list):
+    """Range les items d'un appel d'outil dans le bon ensemble de vignettes :
+    "action" pour les outils d'action, "search" pour les consultations."""
+    bucket = collected["action" if tool_name in ACTION_TOOLS else "search"]
     for item in new_items:
-        items_by_id.setdefault(item["id"], item)
+        bucket.setdefault(item["id"], item)
+
+
+# Marqueur technique en fin de réponse (convention du SYSTEM_PROMPT) : les ids
+# que l'agent cite réellement, ex. "[[items: 3, 9]]"
+_ITEMS_MARKER_RE = re.compile(r"\[\[\s*items\s*:\s*([0-9,\s]*)\]\]")
+
+
+def _finalize_answer(answer: str, collected: dict) -> tuple:
+    """Retire le marqueur [[items: ...]] du texte et choisit les vignettes.
+
+    Priorités : items d'action (déjà filtrés à la source) > items cités par le
+    marqueur > tous les items de recherche (repli si le modèle a oublié le
+    marqueur, typiquement le modèle local). Renvoie (texte, items).
+    """
+    match = _ITEMS_MARKER_RE.search(answer)
+    if match:
+        answer = _ITEMS_MARKER_RE.sub("", answer).strip()
+    if collected["action"]:
+        return answer, list(collected["action"].values())
+    if not match:
+        return answer, list(collected["search"].values())
+
+    cited_ids = [int(n) for n in re.findall(r"\d+", match.group(1))]
+    items = []
+    for cid in cited_ids:
+        if cid in collected["search"]:
+            items.append(collected["search"][cid])
+        else:
+            # Cité mais pas passé par un outil de recherche (ex. list_all
+            # tronqué) : on va le chercher directement en base
+            found = _query_db("id = ?", (cid,))
+            if found:
+                items.append(found[0])
+    return answer, items
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +359,7 @@ def _ollama_tools() -> list:
     ]
 
 
-def _agent_loop_ollama(message: str, items_by_id: dict) -> str:
+def _agent_loop_ollama(message: str, collected: dict) -> str:
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": message},
@@ -242,7 +394,7 @@ def _agent_loop_ollama(message: str, items_by_id: dict) -> str:
                 args = json.loads(args)
             logger.info("Agent (local) → outil %s(%s)", name, args)
             payload, items = _run_tool(name, args)
-            _collect(items_by_id, items)
+            _collect(collected, name, items)
             messages.append({
                 "role": "tool",
                 "content": json.dumps(payload, ensure_ascii=False),
@@ -262,7 +414,7 @@ def _gemini_tools() -> list:
     }]
 
 
-def _agent_loop_gemini(message: str, items_by_id: dict) -> str:
+def _agent_loop_gemini(message: str, collected: dict) -> str:
     if not ai_engine.GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY manquante dans .env")
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -299,7 +451,7 @@ def _agent_loop_gemini(message: str, items_by_id: dict) -> str:
             args = call.get("args") or {}
             logger.info("Agent (cloud) → outil %s(%s)", name, args)
             payload, items = _run_tool(name, args)
-            _collect(items_by_id, items)
+            _collect(collected, name, items)
             response_parts.append({
                 "functionResponse": {"name": name, "response": payload}
             })
@@ -369,7 +521,9 @@ def chat(message: str) -> dict:
                                 "ou des liens au bot Telegram pour commencer !", "items": []}
 
         mode = ai_engine.get_engine_mode()
-        items_by_id: dict = {}
+        # Deux ensembles de vignettes : "search" (consultations) et "action"
+        # (éléments réellement concernés par une action) — voir _relevant_items
+        collected = {"search": {}, "action": {}}
 
         # Gemini (cloud) en premier par défaut : le filtrage sur un sujet précis
         # dépasse les capacités du modèle local 3B. Le local ne repasse en tête
@@ -383,12 +537,14 @@ def chat(message: str) -> dict:
 
         for engine_name, agent_loop in engines:
             try:
-                answer = agent_loop(message, items_by_id)
+                answer = agent_loop(message, collected)
                 logger.info("Agent : réponse fournie par le moteur %s", engine_name)
-                return {"response": answer, "items": list(items_by_id.values())}
+                answer, items = _finalize_answer(answer, collected)
+                return {"response": answer, "items": items}
             except Exception as e:
                 logger.warning("Agent %s indisponible (%s)", engine_name, e)
-                items_by_id.clear()
+                collected["search"].clear()
+                collected["action"].clear()
 
         return _fallback_search(message)
     except Exception as e:

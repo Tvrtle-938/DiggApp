@@ -6,15 +6,13 @@ Lancement : venv/bin/python web.py  →  http://<ip-du-mac>:5000
 
 import json
 import logging
-import sqlite3
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
 import agent
-import ai_engine
 import content_studio
-import embeddings
+import item_editor
 import search_engine
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -88,41 +86,54 @@ def api_items():
 
 @app.route("/api/items/<int:item_id>", methods=["PUT"])
 def api_items_update(item_id):
-    """Reclassement manuel d'un élément : change la catégorie puis régénère
-    l'embedding (le texte indexé commence par la catégorie, sans cela la
-    recherche sémantique resterait calée sur l'ancienne)."""
-    data = request.get_json(silent=True) or {}
-    category = (data.get("category") or "").strip().lower()
-    if category not in ai_engine.VALID_CATEGORIES:
-        return jsonify({"error": f"Catégorie invalide. Valides : {', '.join(ai_engine.VALID_CATEGORIES)}"}), 400
-
-    conn = sqlite3.connect("hub.db")
-    conn.row_factory = sqlite3.Row
-    row = conn.execute("SELECT description, tags, user_note FROM captures WHERE id = ?",
-                       (item_id,)).fetchone()
-    if row is None:
-        conn.close()
-        return jsonify({"error": "Élément introuvable."}), 404
-
-    conn.execute("UPDATE captures SET category = ? WHERE id = ?", (category, item_id))
-    conn.commit()
-
-    # Jamais bloquant : si Ollama est indisponible, la catégorie est quand même
-    # mise à jour, l'embedding sera simplement régénéré au prochain reprocess.
-    text = embeddings.build_item_text(category, row["description"], row["tags"], row["user_note"])
-    vector = embeddings.get_embedding(text)
-    if vector:
-        conn.execute("UPDATE captures SET embedding = ? WHERE id = ?",
-                     (embeddings.serialize(vector), item_id))
-        conn.commit()
+    """Correction manuelle d'un élément : catégorie, titre, description, tags,
+    et remplacement éventuel de l'image. Accepte du JSON (métadonnées seules)
+    ou du multipart/form-data (métadonnées + fichier image). La logique —
+    validation, régénération d'embedding non bloquante — vit dans item_editor,
+    partagée avec les outils de l'agent."""
+    if request.content_type and request.content_type.startswith("multipart/"):
+        data = request.form
+        new_image = request.files.get("image")
     else:
-        logger.warning("Reclassement #%s : embedding non régénéré (Ollama indisponible ?)", item_id)
-    conn.close()
+        data = request.get_json(silent=True) or {}
+        new_image = None
 
-    logger.info("Élément #%s reclassé en « %s » (embedding %s)",
-                item_id, category, "régénéré" if vector else "inchangé")
-    return jsonify({"ok": True, "id": item_id, "category": category,
-                    "embedding_updated": bool(vector)})
+    updates = {k: data.get(k) for k in ("category", "title", "description", "tags")
+               if data.get(k) is not None}
+
+    result = {"ok": True, "id": item_id, "embedding_updated": False}
+    if updates:
+        result = item_editor.update_item(item_id, **updates)
+        if "error" in result:
+            return jsonify(result), (404 if "introuvable" in result["error"] else 400)
+
+    if new_image and new_image.filename:
+        img_result = item_editor.replace_image(item_id, new_image.read(), new_image.filename)
+        if "error" in img_result:
+            return jsonify(img_result), (404 if "introuvable" in img_result["error"] else 400)
+        result["image"] = img_result["image"]
+
+    if not updates and not (new_image and new_image.filename):
+        return jsonify({"error": "Aucun champ à mettre à jour."}), 400
+
+    if "item" in result:
+        result["item"] = serialize(result["item"])
+    return jsonify(result)
+
+
+# --- Ligne éditoriale du Studio (cible/persona, ton, engagements RSE) ---
+
+@app.route("/api/editorial-line", methods=["GET"])
+def api_editorial_get():
+    return jsonify(content_studio.get_editorial_line())
+
+
+@app.route("/api/editorial-line", methods=["PUT"])
+def api_editorial_put():
+    data = request.get_json(silent=True) or {}
+    line = content_studio.set_editorial_line(
+        persona=data.get("persona"), tone=data.get("tone"), rse=data.get("rse"))
+    return jsonify(line)
 
 
 @app.route("/api/chat", methods=["POST"])
