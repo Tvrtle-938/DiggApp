@@ -4,11 +4,13 @@ Boucle d'agent : le modèle reçoit la question + une liste d'outils, appelle
 les outils qu'il juge utiles (recherche sémantique, filtre par catégorie,
 listing, comptage), reçoit leurs résultats, et ne répond qu'ensuite.
 
-Moteurs : tool calling natif d'Ollama puis Gemini en secours, selon le mode
-de ai_engine (local/cloud/auto). Le template Ollama de qwen2.5vl refuse les
-outils ("does not support tools") ; la boucle étant purement textuelle, on
-utilise llama3.2 en local. Si les deux moteurs échouent, filet de sécurité :
-recherche sémantique simple sans agent.
+Moteurs : Gemini (cloud) en premier par défaut — le jugement fin (filtrer une
+catégorie sur un sujet précis) dépasse les capacités du modèle local 3B — avec
+repli sur le tool calling natif d'Ollama si le cloud échoue. Exception : si le
+mode ai_engine est "local" (forcé via /moteur local), le local reste en premier.
+Le template Ollama de qwen2.5vl refuse les outils ("does not support tools") ;
+la boucle étant purement textuelle, on utilise llama3.2 en local. Si les deux
+moteurs échouent, filet de sécurité : recherche sémantique simple sans agent.
 
 Point d'entrée : chat(message) -> {"response": str, "items": [...]}
 (même interface que l'ancien search_engine.chat).
@@ -369,21 +371,24 @@ def chat(message: str) -> dict:
         mode = ai_engine.get_engine_mode()
         items_by_id: dict = {}
 
-        if mode in ("local", "auto"):
+        # Gemini (cloud) en premier par défaut : le filtrage sur un sujet précis
+        # dépasse les capacités du modèle local 3B. Le local ne repasse en tête
+        # que si l'utilisateur l'a forcé (/moteur local). Dans les deux cas, le
+        # second moteur sert de repli : mieux vaut une réponse de l'autre moteur
+        # qu'un filet de sécurité sans agent.
+        if mode == "local":
+            engines = [("local", _agent_loop_ollama), ("cloud", _agent_loop_gemini)]
+        else:
+            engines = [("cloud", _agent_loop_gemini), ("local", _agent_loop_ollama)]
+
+        for engine_name, agent_loop in engines:
             try:
-                answer = _agent_loop_ollama(message, items_by_id)
+                answer = agent_loop(message, items_by_id)
+                logger.info("Agent : réponse fournie par le moteur %s", engine_name)
                 return {"response": answer, "items": list(items_by_id.values())}
             except Exception as e:
-                logger.warning("Agent local indisponible (%s)", e)
+                logger.warning("Agent %s indisponible (%s)", engine_name, e)
                 items_by_id.clear()
-
-        # Fallback Gemini même en mode "local" : mieux vaut une réponse cloud
-        # qu'un filet de sécurité sans agent
-        try:
-            answer = _agent_loop_gemini(message, items_by_id)
-            return {"response": answer, "items": list(items_by_id.values())}
-        except Exception as e:
-            logger.warning("Agent cloud indisponible (%s)", e)
 
         return _fallback_search(message)
     except Exception as e:

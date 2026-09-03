@@ -12,10 +12,10 @@ Trois types de contenu (content_type) :
                 prompt à partir des données réelles de la collection, l'utilisateur
                 le fait ensuite tourner dans l'outil de son choix.
 
-Contrairement à l'agent de recherche (agent.py), qui privilégie le local pour la
-rapidité, la génération de contenu ici passe par le cloud (Gemini) en priorité :
-la qualité rédactionnelle et le respect fin des contraintes comptent plus que la
-latence. Repli automatique sur le modèle local (llama3.2) si le cloud échoue.
+Comme l'agent de recherche (agent.py), la génération de contenu passe par le
+cloud (Gemini) en priorité : la qualité rédactionnelle et le respect fin des
+contraintes comptent plus que la latence. Repli automatique sur le modèle
+local (llama3.2) si le cloud échoue.
 
 Point d'entrée principal : generate_draft(topic, target, content_type="post") -> dict
 Gestion : list_drafts(), update_draft(), delete_draft()
@@ -230,6 +230,10 @@ RÈGLES ABSOLUES :
 que d'inventer du contenu.
 3. Le texte du post doit respecter la contrainte de longueur ci-dessus.
 4. Liste dans "source_ids" les identifiants (#id) des éléments effectivement utilisés.
+5. Reconnais les synonymes et équivalents français/anglais du domaine avant de juger la \
+pertinence d'un élément (ex. "manches longues" = "longsleeve"/"long sleeve", "baskets" = \
+"sneakers", "sweat à capuche" = "hoodie") : un élément qui utilise le terme anglais n'est \
+pas hors sujet pour une demande formulée en français.
 
 Sujet demandé : "{topic}"
 
@@ -258,6 +262,10 @@ RÈGLES ABSOLUES :
 3. Structure le script en 3 à 6 plans maximum, chacun avec une description de l'image/action, un \
 texte à l'écran, et éventuellement une voix off.
 4. Liste dans "source_ids" les identifiants (#id) des éléments effectivement utilisés.
+5. Reconnais les synonymes et équivalents français/anglais du domaine avant de juger la \
+pertinence d'un élément (ex. "manches longues" = "longsleeve"/"long sleeve", "baskets" = \
+"sneakers", "sweat à capuche" = "hoodie") : un élément qui utilise le terme anglais n'est \
+pas hors sujet pour une demande formulée en français.
 
 Sujet demandé : "{topic}"
 
@@ -287,6 +295,10 @@ RÈGLES ABSOLUES :
 aucun produit, marque ou fait qui ne s'y trouve pas.
 2. Si les éléments ne permettent pas de construire un prompt pertinent, indique-le dans "warning".
 3. Liste dans "source_ids" les identifiants (#id) des éléments effectivement utilisés pour inspirer le prompt.
+4. Reconnais les synonymes et équivalents français/anglais du domaine avant de juger la \
+pertinence d'un élément (ex. "manches longues" = "longsleeve"/"long sleeve", "baskets" = \
+"sneakers", "sweat à capuche" = "hoodie") : un élément qui utilise le terme anglais n'est \
+pas hors sujet pour une demande formulée en français.
 
 Sujet demandé : "{topic}"
 
@@ -352,6 +364,7 @@ def _generate_raw(prompt: str) -> tuple:
     try:
         raw = _call_gemini(prompt)
         if raw:
+            logger.info("Studio : contenu généré par le moteur cloud")
             return raw, "cloud"
     except Exception as e:
         logger.warning("Génération cloud indisponible (%s)", e)
@@ -359,6 +372,7 @@ def _generate_raw(prompt: str) -> tuple:
     try:
         raw = _call_local(prompt)
         if raw:
+            logger.info("Studio : contenu généré par le moteur local")
             return raw, "local"
     except Exception as e:
         logger.error("Génération locale indisponible (%s)", e)
