@@ -289,6 +289,48 @@
     .badge.cat  { top: 8px; left: 8px; color: #1a1410; }
     .badge.type { top: 8px; right: 8px; background: rgba(20, 16, 13, 0.82); color: var(--text); }
 
+    /* Badge catégorie cliquable : ouvre le sélecteur de reclassement */
+    button.badge.cat {
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    button.badge.cat:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+
+    /* Sélecteur de catégories, ancré sous le badge dans le visuel de la carte */
+    .cat-menu {
+      position: absolute;
+      top: 36px;
+      left: 8px;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      min-width: 140px;
+      max-height: 215px;
+      overflow-y: auto;
+      background: var(--bg-header);
+      border: 1px solid var(--card-edge);
+      border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+    }
+    .cat-menu button {
+      background: transparent;
+      border: none;
+      text-align: left;
+      padding: 8px 12px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    .cat-menu button:hover { background: var(--card); }
+    /* Focus clavier bien visible (navigation Tab / flèches) */
+    .cat-menu button:focus-visible {
+      background: var(--card);
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+
     .card .body { padding: 12px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
 
     .card .title {
@@ -887,6 +929,7 @@
     }
 
     function renderGrid(items) {
+      closeCatMenu();   // le re-rendu détruirait le menu sans son écouteur global
       const grid = document.getElementById("grid");
       const empty = document.getElementById("empty");
       grid.innerHTML = "";
@@ -919,9 +962,10 @@
         ? `<img src="/${esc(item.image)}" alt="${esc(title)}" loading="lazy">`
         : `<div class="placeholder">${esc(typeLabel)}</div>`;
 
-      const catBadge = item.category
-        ? `<span class="badge cat" style="background:${catColor(item.category)}">${esc(item.category)}</span>`
-        : "";
+      // Badge toujours présent ("?" si non catégorisé) : c'est le point
+      // d'entrée du reclassement manuel
+      const catBadge = `<button type="button" class="badge cat" title="Changer la catégorie"
+        style="background:${catColor(item.category)}">${esc(item.category || "?")}</button>`;
 
       card.innerHTML = `
         <div class="visual">
@@ -934,7 +978,97 @@
           <div class="tags">${tagsHtml}</div>
           <div class="date">${relativeDate(item.created_at)}</div>
         </div>`;
+
+      // Clic sur le badge → sélecteur de catégories. stopPropagation +
+      // preventDefault : la carte d'un lien est un <a>, il ne doit pas s'ouvrir.
+      card.querySelector("button.badge.cat").addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openCatMenu(card.querySelector(".visual"), item, e.currentTarget);
+      });
       return card;
+    }
+
+    /* ===================================================================
+       RECLASSEMENT MANUEL — sélecteur de catégories sous le badge
+       =================================================================== */
+    let openMenu = null;
+
+    function closeCatMenu() {
+      if (!openMenu) return;
+      openMenu.remove();
+      openMenu = null;
+      document.removeEventListener("click", onDocClickCloseMenu);
+    }
+
+    function onDocClickCloseMenu(e) {
+      if (openMenu && !openMenu.contains(e.target)) closeCatMenu();
+    }
+
+    function openCatMenu(visual, item, badge) {
+      // Re-cliquer sur le badge du menu déjà ouvert le referme
+      if (openMenu && openMenu.parentElement === visual) { closeCatMenu(); return; }
+      closeCatMenu();
+
+      const menu = document.createElement("div");
+      menu.className = "cat-menu";
+      menu.setAttribute("role", "menu");
+
+      for (const cat of CATEGORIES) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.setAttribute("role", "menuitem");
+        b.style.color = catColor(cat);
+        b.textContent = (cat === item.category ? "✓ " : "") + cat;
+        b.onclick = () => reclassify(item, cat, badge);
+        menu.appendChild(b);
+      }
+
+      // Le menu vit dans la carte, qui peut être un <a> : on bloque la
+      // navigation pour tout clic à l'intérieur (y compris au clavier)
+      menu.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); });
+
+      // Clavier : Échap referme (focus rendu au badge), flèches pour naviguer
+      menu.addEventListener("keydown", (e) => {
+        const buttons = [...menu.querySelectorAll("button")];
+        const idx = buttons.indexOf(document.activeElement);
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          closeCatMenu();
+          badge.focus();
+        } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          const step = e.key === "ArrowDown" ? 1 : -1;
+          buttons[(idx + step + buttons.length) % buttons.length].focus();
+        }
+      });
+
+      visual.appendChild(menu);
+      openMenu = menu;
+      menu.querySelector("button").focus();
+      document.addEventListener("click", onDocClickCloseMenu);
+    }
+
+    async function reclassify(item, cat, badge) {
+      try {
+        const res = await fetch(`/api/items/${item.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category: cat }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || "réponse invalide");
+        closeCatMenu();
+        // Badge mis à jour tout de suite, puis grille + chips resynchronisées
+        // depuis le serveur (sans recharger la page)
+        badge.textContent = cat;
+        badge.style.background = catColor(cat);
+        loadItems();
+      } catch (err) {
+        console.error("Reclassement impossible :", err);
+        closeCatMenu();
+        badge.focus();
+      }
     }
 
     /* ===================================================================

@@ -12,7 +12,9 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
 import agent
+import ai_engine
 import content_studio
+import embeddings
 import search_engine
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -82,6 +84,45 @@ def api_items():
     }
 
     return jsonify({"items": [serialize(r) for r in rows], "counts": counts})
+
+
+@app.route("/api/items/<int:item_id>", methods=["PUT"])
+def api_items_update(item_id):
+    """Reclassement manuel d'un élément : change la catégorie puis régénère
+    l'embedding (le texte indexé commence par la catégorie, sans cela la
+    recherche sémantique resterait calée sur l'ancienne)."""
+    data = request.get_json(silent=True) or {}
+    category = (data.get("category") or "").strip().lower()
+    if category not in ai_engine.VALID_CATEGORIES:
+        return jsonify({"error": f"Catégorie invalide. Valides : {', '.join(ai_engine.VALID_CATEGORIES)}"}), 400
+
+    conn = sqlite3.connect("hub.db")
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT description, tags, user_note FROM captures WHERE id = ?",
+                       (item_id,)).fetchone()
+    if row is None:
+        conn.close()
+        return jsonify({"error": "Élément introuvable."}), 404
+
+    conn.execute("UPDATE captures SET category = ? WHERE id = ?", (category, item_id))
+    conn.commit()
+
+    # Jamais bloquant : si Ollama est indisponible, la catégorie est quand même
+    # mise à jour, l'embedding sera simplement régénéré au prochain reprocess.
+    text = embeddings.build_item_text(category, row["description"], row["tags"], row["user_note"])
+    vector = embeddings.get_embedding(text)
+    if vector:
+        conn.execute("UPDATE captures SET embedding = ? WHERE id = ?",
+                     (embeddings.serialize(vector), item_id))
+        conn.commit()
+    else:
+        logger.warning("Reclassement #%s : embedding non régénéré (Ollama indisponible ?)", item_id)
+    conn.close()
+
+    logger.info("Élément #%s reclassé en « %s » (embedding %s)",
+                item_id, category, "régénéré" if vector else "inchangé")
+    return jsonify({"ok": True, "id": item_id, "category": category,
+                    "embedding_updated": bool(vector)})
 
 
 @app.route("/api/chat", methods=["POST"])
