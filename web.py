@@ -121,6 +121,16 @@ def api_items_update(item_id):
     return jsonify(result)
 
 
+@app.route("/api/items/<int:item_id>", methods=["DELETE"])
+def api_items_delete(item_id):
+    """Suppression définitive d'un élément (RGPD, droit à l'effacement) :
+    ligne en base + fichiers image associés. Logique dans item_editor."""
+    result = item_editor.delete_item(item_id)
+    if "error" in result:
+        return jsonify(result), (404 if "introuvable" in result["error"] else 400)
+    return jsonify(result)
+
+
 # --- Ligne éditoriale du Studio (cible/persona, ton, engagements RSE) ---
 
 @app.route("/api/editorial-line", methods=["GET"])

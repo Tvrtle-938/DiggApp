@@ -52,14 +52,48 @@
       flex-direction: column;   /* permet à la page Digg d'occuper tout le reste */
     }
 
-    /* Bascule entre les deux vues : "Digg" (accueil conversationnel, défaut)
-       et "Collection" (grille + filtres). Un seul document, on masque l'autre. */
-    body.view-digg .searchbar,
-    body.view-digg .chips,
-    body.view-digg .type-toggle,
-    body.view-digg main,
-    body.view-digg footer.privacy-note { display: none; }
+    /* Bascule entre les vues : "Digg" (accueil conversationnel, défaut),
+       "Collection" (grille + filtres) et "Confidentialité". Un seul document,
+       on masque les vues inactives. Le Studio, lui, est un panneau qui
+       s'ouvre par-dessus la vue courante (onglet ou bouton flottant). */
+    body:not(.view-collection) .searchbar,
+    body:not(.view-collection) .chips,
+    body:not(.view-collection) .type-toggle,
+    body:not(.view-collection) main,
+    body:not(.view-collection) footer.privacy-note { display: none; }
     body:not(.view-digg) .digg { display: none; }
+    body:not(.view-privacy) .privacy-page { display: none; }
+
+    /* Focus clavier : anneau ambré partout, bien contrasté sur les fonds
+       sombres du thème. Les éléments à fond ambre (état actif, boutons
+       primaires) reçoivent un anneau clair, sinon il serait invisible. */
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .tabs button.active:focus-visible,
+    .type-toggle button.active:focus-visible,
+    .chip.active:focus-visible,
+    .digg-form button:focus-visible,
+    .studio-form button[type="submit"]:focus-visible,
+    .modal-actions button.primary:focus-visible { outline-color: var(--text); }
+
+    /* Lien d'évitement : hors écran, apparaît au premier Tab */
+    .skip-link {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      z-index: 200;
+      background: var(--accent);
+      color: #1a1410;
+      font-weight: 700;
+      font-size: 0.85rem;
+      padding: 10px 14px;
+      border-radius: 6px;
+      text-decoration: none;
+      transform: translateY(-300%);
+    }
+    .skip-link:focus { transform: translateY(0); }
+    /* Les cibles du lien d'évitement sont focusées en JS : pas d'anneau,
+       le focus repart au Tab suivant vers le premier élément interactif */
+    .digg:focus-visible, main:focus-visible, .privacy-page:focus-visible { outline: none; }
 
     /* =====================================================================
        HEADER — sticky, reste visible au scroll
@@ -133,15 +167,19 @@
     .searchbar input:focus { border-color: var(--accent); }
     .searchbar input::placeholder { color: var(--text-dim); }
 
-    /* Onglets Digg / Collection — même langage visuel que le toggle de type */
+    /* Onglets Digg / Collection / Studio / Confidentialité — même langage
+       visuel que le toggle de type. Scroll horizontal si l'écran est étroit. */
     .tabs {
       display: flex;
       margin-bottom: 10px;
       border: 1px solid var(--card-edge);
       border-radius: 6px;
-      overflow: hidden;
       width: fit-content;
+      max-width: 100%;
+      overflow-x: auto;
+      scrollbar-width: none;
     }
+    .tabs::-webkit-scrollbar { display: none; }
     .tabs button {
       background: transparent;
       border: none;
@@ -150,6 +188,7 @@
       font-size: 0.85rem;
       font-weight: 700;
       cursor: pointer;
+      white-space: nowrap;
     }
     .tabs button.active {
       background: var(--accent);
@@ -386,6 +425,7 @@
       cursor: pointer;
     }
     .item-menu button:hover { background: var(--card); }
+    .item-menu button.danger { color: var(--cat-audiovisuel); }
     .item-menu button:focus-visible {
       background: var(--card);
       outline: 2px solid var(--accent);
@@ -417,7 +457,7 @@
       flex-direction: column;
       gap: 10px;
     }
-    .modal h3 { color: var(--accent); font-size: 1rem; }
+    .modal h2 { color: var(--accent); font-size: 1rem; }
 
     /* Champs étiquetés — partagés entre la modale et la ligne éditoriale */
     .field-label {
@@ -559,7 +599,7 @@
       background: var(--bg-header);
       border-bottom: 2px solid var(--card-edge);
     }
-    .chat-head .t { font-weight: 800; color: var(--accent); }
+    .chat-head .t { font-weight: 800; color: var(--accent); font-size: 1rem; }
     .chat-head .s { font-size: 0.72rem; color: var(--text-dim); }
     .chat-head button {
       margin-left: auto;
@@ -772,12 +812,17 @@
     /* Vignettes un peu plus larges que dans l'ancien panneau étroit */
     .digg .msg-items { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 
-    /* Accessibilité : pas d'animation si l'utilisateur les refuse */
+    /* Accessibilité : pas d'animation ni de transition si l'utilisateur les
+       refuse — règle globale (couvre aussi le repli du héro, les chips, les
+       cartes…), plus deux états qui doivent rester lisibles sans animation */
     @media (prefers-reduced-motion: reduce) {
-      .digg::before, .digg-hero, .digg-sugg, .digg-spacer { transition: none; }
-      .digg .msg, .digg .msg-items { animation: none; }
-      .digg-wait .dot { animation: none; opacity: 0.6; }
-      .card.pressing { transform: none; }
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+      .digg-wait .dot { animation: none; opacity: 0.6; }  /* attente statique */
+      .card.pressing { transform: none; }                 /* pas de rétrécissement */
     }
 
     /* =====================================================================
@@ -898,6 +943,41 @@
     .draft-actions button.danger { border-color: var(--cat-audiovisuel); color: var(--cat-audiovisuel); }
 
     /* =====================================================================
+       PAGE CONFIDENTIALITÉ — quelles données, où, pourquoi, comment effacer
+       ===================================================================== */
+    .privacy-page {
+      width: 100%;
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 22px 16px 60px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .privacy-page h2 { color: var(--accent); font-size: 1.3rem; }
+    .privacy-page article {
+      background: var(--card);
+      border: 1px solid var(--card-edge);
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .privacy-page h3 { font-size: 0.95rem; margin-bottom: 8px; }
+    .privacy-page p, .privacy-page li {
+      font-size: 0.88rem;
+      line-height: 1.55;
+    }
+    .privacy-page p + p { margin-top: 8px; }
+    .privacy-page ul { padding-left: 20px; }
+    .privacy-page li { margin-bottom: 4px; }
+    .privacy-page code {
+      background: var(--bg);
+      border: 1px solid var(--card-edge);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 0.82em;
+    }
+
+    /* =====================================================================
        FOOTER -- mention confidentialite (donnees locales uniquement)
        ===================================================================== */
     footer.privacy-note {
@@ -910,6 +990,9 @@
 </head>
 <body class="view-digg">
 
+  <!-- Lien d'évitement : premier élément focusable, saute le header -->
+  <a class="skip-link" id="skipLink" href="#main">Aller au contenu principal</a>
+
   <!-- ================= HEADER ================= -->
   <header>
     <div class="brand">
@@ -921,24 +1004,28 @@
       </div>
       <div class="counter" id="counter">…</div>
     </div>
-    <nav class="tabs" id="tabs">
-      <button data-view="digg" class="active">⛏️ Digg</button>
+    <nav class="tabs" id="tabs" aria-label="Navigation principale">
+      <button data-view="digg" class="active" aria-current="page">⛏️ Digg</button>
       <button data-view="collection">🧱 Collection</button>
+      <button data-view="studio">📝 Studio</button>
+      <button data-view="privacy">🔒 Confidentialité</button>
     </nav>
     <div class="searchbar">
-      <input type="search" id="search" placeholder="Chercher dans ta collection…" autocomplete="off">
+      <input type="search" id="search" placeholder="Chercher dans ta collection…"
+             aria-label="Chercher dans ta collection" autocomplete="off">
     </div>
   </header>
 
   <!-- ================= PAGE DIGG — accueil conversationnel ================= -->
-  <section class="digg" id="digg">
-    <div class="digg-msgs" id="diggMsgs"></div>
+  <section class="digg" id="digg" aria-label="Digg — recherche conversationnelle" tabindex="-1">
+    <div class="digg-msgs" id="diggMsgs" aria-live="polite"></div>
     <div class="digg-hero">
       <h2>Que veux-tu déterrer ?</h2>
       <p>Pose ta question, Digg fouille dans tout ce que tu as sauvegardé.</p>
     </div>
     <form class="digg-form" id="diggForm">
-      <input type="text" id="diggText" placeholder="Demander à Digg" autocomplete="off" enterkeyhint="send">
+      <input type="text" id="diggText" placeholder="Demander à Digg"
+             aria-label="Ta question à Digg" autocomplete="off" enterkeyhint="send">
       <button type="submit" id="diggSend" aria-label="Envoyer">➤</button>
     </form>
     <div class="digg-sugg" id="diggSugg">
@@ -950,36 +1037,104 @@
   </section>
 
   <!-- ================= FILTRES ================= -->
-  <div class="chips" id="chips"></div>
+  <div class="chips" id="chips" role="group" aria-label="Filtrer par catégorie"></div>
 
-  <div class="type-toggle" id="typeToggle">
-    <button data-type="" class="active">Tout</button>
-    <button data-type="image">📷 Images</button>
-    <button data-type="link">🔗 Liens</button>
+  <div class="type-toggle" id="typeToggle" role="group" aria-label="Filtrer par type">
+    <button data-type="" class="active" aria-pressed="true">Tout</button>
+    <button data-type="image" aria-pressed="false">📷 Images</button>
+    <button data-type="link" aria-pressed="false">🔗 Liens</button>
   </div>
 
   <!-- ================= GRILLE ================= -->
-  <main>
+  <main id="main" tabindex="-1">
     <div class="grid" id="grid"></div>
     <div class="empty" id="empty" style="display:none">Rien trouvé par ici. Creuse ailleurs ⛏️</div>
   </main>
+
+  <!-- ================= PAGE CONFIDENTIALITÉ ================= -->
+  <section class="privacy-page" id="privacyPage" aria-label="Confidentialité" tabindex="-1">
+    <h2>🔒 Confidentialité &amp; données</h2>
+    <p>
+      DiggApp est une application personnelle : il n'y a ni compte, ni cookie,
+      ni traceur, ni statistique d'usage. Voici, honnêtement, ce qui est stocké,
+      où, pourquoi, et ce qui sort de ta machine.
+    </p>
+
+    <article>
+      <h3>Quelles données sont stockées ?</h3>
+      <ul>
+        <li>Les <strong>captures d'écran</strong> et images que tu envoies au bot ;</li>
+        <li>les <strong>liens</strong> sauvegardés (URL, plateforme, miniature) ;</li>
+        <li>tes <strong>notes</strong> jointes aux éléments ;</li>
+        <li>les <strong>métadonnées</strong> de chaque élément : titre, description, tags,
+            catégorie — générées par l'IA puis éventuellement corrigées à la main ;</li>
+        <li>ta <strong>ligne éditoriale</strong> (persona, ton, engagements RSE) et les
+            <strong>brouillons</strong> générés dans le Studio.</li>
+      </ul>
+    </article>
+
+    <article>
+      <h3>Où sont-elles stockées ?</h3>
+      <p>
+        Tout vit en local sur cette machine : les métadonnées dans la base SQLite
+        <code>hub.db</code> (à la racine du projet), les images dans
+        <code>data/captures/</code> et les miniatures dans <code>data/thumbnails/</code>.
+        Rien n'est envoyé sur un serveur distant pour être stocké.
+      </p>
+    </article>
+
+    <article>
+      <h3>Pourquoi ?</h3>
+      <p>
+        Pour retrouver, classer et rechercher ce que tu as sauvegardé (y compris la
+        recherche sémantique, qui repose sur des empreintes numériques du texte
+        calculées localement), et pour que le Studio génère des contenus fidèles à
+        ta ligne éditoriale.
+      </p>
+    </article>
+
+    <article>
+      <h3>Qu'est-ce qui est envoyé aux moteurs IA ?</h3>
+      <p>
+        Selon le mode configuré : <strong>Ollama</strong> tourne entièrement en local —
+        rien ne quitte ta machine. <strong>Gemini</strong> (Google) est un service cloud :
+        quand ce mode est actif, l'image ou le texte de l'élément analysé, tes questions
+        posées à Digg et le sujet + contexte des générations du Studio sont transmis à
+        Google le temps du traitement, sous ses conditions d'utilisation. Ces envois
+        sont ponctuels et servent uniquement à l'analyse ou à la génération demandée.
+      </p>
+    </article>
+
+    <article>
+      <h3>Comment supprimer un élément ?</h3>
+      <p>
+        Ouvre le menu <strong>⋯</strong> d'une vignette (bouton, clic droit ou appui
+        long) puis choisis <strong>Supprimer</strong> et confirme : l'entrée est effacée
+        de <code>hub.db</code> et les fichiers image associés sont supprimés du disque.
+        Pour tout effacer, supprime le fichier <code>hub.db</code> et le dossier
+        <code>data/</code>.
+      </p>
+    </article>
+  </section>
 
   <footer class="privacy-note">
     Application personnelle : tes données (captures, liens, notes) restent stockées en local dans
     hub.db et ne sont partagées avec aucun tiers, hormis les appels ponctuels aux moteurs IA
     (Ollama en local, ou Gemini si le mode cloud est actif) nécessaires à l'analyse du contenu.
+    Détails dans l'onglet Confidentialité.
   </footer>
 
   <!-- ================= STUDIO DE CONTENU ================= -->
-  <button class="studio-fab" id="studioFab" title="Studio de contenu">📝</button>
+  <button class="studio-fab" id="studioFab" title="Studio de contenu"
+          aria-label="Ouvrir le Studio de contenu">📝</button>
 
-  <div class="chat-panel" id="studioPanel">
+  <div class="chat-panel" id="studioPanel" role="region" aria-label="Studio de contenu">
     <div class="chat-head">
       <div>
-        <div class="t">Studio de contenu</div>
+        <h2 class="t">Studio de contenu</h2>
         <div class="s">génère des posts prêts à publier depuis ta collection</div>
       </div>
-      <button id="studioClose">✕</button>
+      <button id="studioClose" aria-label="Fermer le Studio">✕</button>
     </div>
     <div class="studio-body">
       <details class="editorial-box" id="editorialBox">
@@ -999,13 +1154,14 @@
         </form>
       </details>
       <form class="studio-form" id="studioForm">
-        <input type="text" id="studioTopic" placeholder="Sujet (ex. chaussures tendance hiver)" autocomplete="off">
-        <select id="studioType">
+        <input type="text" id="studioTopic" placeholder="Sujet (ex. chaussures tendance hiver)"
+               aria-label="Sujet du contenu à générer" autocomplete="off">
+        <select id="studioType" aria-label="Type de contenu">
           <option value="post">📝 Post texte (réseau social / newsletter)</option>
           <option value="script">🎬 Script de tournage (vidéo courte)</option>
           <option value="ai_prompt">🎨 Prompt pour IA générative (image/vidéo)</option>
         </select>
-        <select id="studioChannel"></select>
+        <select id="studioChannel" aria-label="Canal cible"></select>
         <button type="submit" id="studioGenerate">✍️ Générer</button>
       </form>
       <div class="draft-error" id="studioError"></div>
@@ -1015,8 +1171,8 @@
 
   <!-- ================= MODALE D'ÉDITION D'UN ÉLÉMENT ================= -->
   <div class="modal-overlay" id="editOverlay">
-    <form class="modal" id="editForm">
-      <h3>Modifier l'élément</h3>
+    <form class="modal" id="editForm" role="dialog" aria-modal="true" aria-labelledby="editModalTitle">
+      <h2 id="editModalTitle">Modifier l'élément</h2>
       <label class="field-label">Titre
         <input type="text" id="editTitle" autocomplete="off">
       </label>
@@ -1107,6 +1263,7 @@
       // Chip "Tout" en premier
       const all = document.createElement("button");
       all.className = "chip" + (state.category === "" ? " active" : "");
+      all.setAttribute("aria-pressed", state.category === "" ? "true" : "false");
       all.style.setProperty("--chip-color", "var(--accent)");
       all.innerHTML = `Tout <span class="n">${counts.total}</span>`;
       all.onclick = () => { state.category = ""; loadItems(); };
@@ -1118,6 +1275,7 @@
         if (!n) continue;
         const b = document.createElement("button");
         b.className = "chip" + (state.category === cat ? " active" : "");
+        b.setAttribute("aria-pressed", state.category === cat ? "true" : "false");
         b.style.setProperty("--chip-color", catColor(cat));
         b.innerHTML = `${esc(cat)} <span class="n">${n}</span>`;
         b.onclick = () => {
@@ -1167,6 +1325,7 @@
       // Badge toujours présent ("?" si non catégorisé) : c'est le point
       // d'entrée du reclassement manuel
       const catBadge = `<button type="button" class="badge cat" title="Changer la catégorie"
+        aria-label="Catégorie : ${esc(item.category || "non classée")} — changer"
         style="background:${catColor(item.category)}">${esc(item.category || "?")}</button>`;
 
       card.innerHTML = `
@@ -1174,7 +1333,8 @@
           ${visual}
           ${catBadge}
           <span class="badge type">${esc(typeLabel)}</span>
-          <button type="button" class="edit-btn" title="Modifier l'élément" aria-haspopup="menu">⋯</button>
+          <button type="button" class="edit-btn" title="Options de l'élément"
+            aria-label="Options de l'élément" aria-haspopup="menu">⋯</button>
         </div>
         <div class="body">
           <div class="title">${esc(title)}</div>
@@ -1365,6 +1525,34 @@
         menu.appendChild(b);
       }
 
+      // Suppression en deux temps (pas de dialogue natif bloquant) : le
+      // premier clic arme le bouton, le second supprime vraiment
+      const del = document.createElement("button");
+      del.type = "button";
+      del.setAttribute("role", "menuitem");
+      del.className = "danger";
+      del.textContent = "🗑️ Supprimer";
+      let armed = false;
+      del.onclick = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!armed) {
+          armed = true;
+          del.textContent = "⚠️ Confirmer la suppression";
+          return;
+        }
+        try {
+          const res = await fetch(`/api/items/${item.id}`, { method: "DELETE" });
+          const data = await res.json();
+          if (!res.ok || !data.ok) throw new Error(data.error || "réponse invalide");
+        } catch (err) {
+          console.error("Suppression impossible :", err);
+        }
+        closeItemMenu();
+        loadItems();
+      };
+      menu.appendChild(del);
+
       // Clavier : Échap referme (focus rendu au bouton ⋯), flèches pour naviguer
       menu.addEventListener("keydown", (e) => {
         const buttons = [...menu.querySelectorAll("button")];
@@ -1499,20 +1687,57 @@
       const btn = e.target.closest("button");
       if (!btn) return;
       state.type = btn.dataset.type;
-      document.querySelectorAll("#typeToggle button")
-        .forEach(b => b.classList.toggle("active", b === btn));
+      document.querySelectorAll("#typeToggle button").forEach(b => {
+        b.classList.toggle("active", b === btn);
+        b.setAttribute("aria-pressed", b === btn ? "true" : "false");
+      });
       loadItems();
     });
 
     /* ===================================================================
-       ONGLETS — bascule entre l'accueil Digg et la grille Collection
+       ONGLETS — 4 destinations : Digg, Collection, Studio, Confidentialité.
+       Digg/Collection/Confidentialité sont des vues (classe sur <body>) ;
+       Studio ouvre son panneau par-dessus la vue courante.
        =================================================================== */
+    const VIEW_CLASSES = ["view-digg", "view-collection", "view-privacy"];
+    let pageView = "digg";    // vue de fond active (hors panneau Studio)
+
+    function setActiveTab(view) {
+      document.querySelectorAll("#tabs button").forEach(b => {
+        const active = b.dataset.view === view;
+        b.classList.toggle("active", active);
+        if (active) b.setAttribute("aria-current", "page");
+        else b.removeAttribute("aria-current");
+      });
+    }
+
+    function showView(view) {
+      pageView = view;
+      document.body.classList.remove(...VIEW_CLASSES);
+      document.body.classList.add("view-" + view);
+      setActiveTab(view);
+    }
+
     document.getElementById("tabs").addEventListener("click", (e) => {
       const btn = e.target.closest("button");
       if (!btn) return;
-      document.querySelectorAll("#tabs button")
-        .forEach(b => b.classList.toggle("active", b === btn));
-      document.body.classList.toggle("view-digg", btn.dataset.view === "digg");
+      if (btn.dataset.view === "studio") {
+        openStudio(btn);
+        return;
+      }
+      closeStudio(false);   // referme le panneau sans voler le focus
+      showView(btn.dataset.view);
+    });
+
+    /* Lien d'évitement : envoie le focus sur la zone de contenu de la vue
+       courante (elles portent tabindex="-1" pour être focusables) */
+    document.getElementById("skipLink").addEventListener("click", (e) => {
+      e.preventDefault();
+      const target =
+        document.body.classList.contains("view-digg") ? document.getElementById("digg") :
+        document.body.classList.contains("view-privacy") ? document.getElementById("privacyPage") :
+        document.getElementById("main");
+      target.focus();
     });
 
     /* ===================================================================
@@ -1615,12 +1840,34 @@
 
     const TYPE_LABELS = { post: "Post", script: "Script vidéo", ai_prompt: "Prompt IA" };
 
-    document.getElementById("studioFab").onclick = async () => {
+    /* Ouverture (onglet Studio ou bouton flottant) : l'onglet Studio devient
+       actif, le focus entre dans le panneau. Fermeture (✕ ou Échap) :
+       l'onglet de la vue de fond redevient actif, le focus revient à
+       l'élément qui a ouvert le panneau. */
+    let studioOpener = null;
+
+    async function openStudio(opener) {
+      studioOpener = opener || null;
+      setActiveTab("studio");
       studioPanel.classList.add("open");
+      document.getElementById("studioTopic").focus();
       loadEditorial();
       await loadTargets(studioTypeEl.value);
       loadDrafts();
-    };
+    }
+
+    function closeStudio(refocus = true) {
+      if (!studioPanel.classList.contains("open")) return;
+      studioPanel.classList.remove("open");
+      setActiveTab(pageView);
+      if (refocus && studioOpener) studioOpener.focus();
+      studioOpener = null;
+    }
+
+    document.getElementById("studioFab").onclick = (e) => openStudio(e.currentTarget);
+    studioPanel.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeStudio();
+    });
 
     /* --- Ligne éditoriale : chargée à l'ouverture, enregistrée à la demande --- */
     let editorialLoaded = false;
@@ -1655,7 +1902,7 @@
         console.error("Ligne éditoriale non enregistrée :", err);
       }
     });
-    document.getElementById("studioClose").onclick = () => studioPanel.classList.remove("open");
+    document.getElementById("studioClose").onclick = () => closeStudio();
 
     async function loadTargets(type) {
       if (!targetsCache[type]) {
@@ -1690,7 +1937,7 @@
           <span>${esc(draft.channel_label || draft.channel)}</span>
           <span>· ${esc(draft.topic || "")}</span>
         </div>
-        <textarea>${esc(draft.content)}</textarea>
+        <textarea aria-label="Contenu du brouillon">${esc(draft.content)}</textarea>
         <div class="draft-char-count">${draft.content.length}${maxTxt} caractères</div>
         <div class="draft-actions">
           <button type="button" class="primary" data-action="save">Enregistrer</button>

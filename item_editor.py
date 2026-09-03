@@ -104,6 +104,38 @@ def update_item(item_id, category=None, title=None, description=None, tags=None)
     return {"ok": True, "item": row, "embedding_updated": embedding_ok}
 
 
+def delete_item(item_id) -> dict:
+    """Supprime définitivement un élément (droit à l'effacement) : la ligne en
+    base et les fichiers image associés (capture et miniature). L'absence d'un
+    fichier n'est jamais une erreur.
+    """
+    try:
+        item_id = int(item_id)
+    except (TypeError, ValueError):
+        return {"error": f"Identifiant d'élément invalide : {item_id}"}
+
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute("SELECT file_path, thumbnail_path FROM captures WHERE id = ?",
+                       (item_id,)).fetchone()
+    if row is None:
+        conn.close()
+        return {"error": f"Élément #{item_id} introuvable."}
+
+    conn.execute("DELETE FROM captures WHERE id = ?", (item_id,))
+    conn.commit()
+    conn.close()
+
+    for path in row:
+        if path:
+            try:
+                Path(path).unlink(missing_ok=True)
+            except OSError as e:
+                logger.warning("Fichier de #%s non supprimé (%s)", item_id, e)
+
+    logger.info("Élément #%s supprimé (base + fichiers)", item_id)
+    return {"ok": True, "id": item_id}
+
+
 def replace_image(item_id, file_bytes: bytes, original_filename: str) -> dict:
     """Remplace l'image d'un élément : capture pour une image, miniature pour
     un lien. Le nouveau fichier suit la convention de nommage du bot, l'ancien
