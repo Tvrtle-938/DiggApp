@@ -4,3 +4,4 @@ requests>=2.31.0
 yt-dlp>=2024.1.0
 beautifulsoup4>=4.12
 flask>=3.0
+numpy>=1.26

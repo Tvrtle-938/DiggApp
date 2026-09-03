@@ -11,7 +11,10 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
+import agent
 import ai_engine
+import content_studio
+import embeddings
 import link_extractor
 import search_engine
 
@@ -57,6 +60,7 @@ def init_db():
         "title": "TEXT",
         "thumbnail_path": "TEXT",
         "user_note": "TEXT",
+        "embedding": "TEXT",  # vecteur sémantique sérialisé en JSON
     }
     for col, col_type in new_columns.items():
         if col not in existing:
@@ -72,12 +76,28 @@ def save_to_db(item_type: str, file_path: str, file_id: str, metadata: Optional[
                url: Optional[str] = None, platform: Optional[str] = None,
                title: Optional[str] = None, thumbnail_path: Optional[str] = None,
                user_note: Optional[str] = None) -> int:
+    # Embedding sémantique du texte combiné (category + description + tags + note).
+    # Jamais bloquant : si Ollama est indisponible, l'élément est stocké sans embedding
+    # (reprocess.py pourra le générer plus tard).
+    embedding_json = None
+    try:
+        text = embeddings.build_item_text(
+            metadata.get("category") if metadata else None,
+            metadata.get("description") if metadata else None,
+            metadata.get("tags") if metadata else None,
+            user_note,
+        )
+        embedding_json = embeddings.serialize(embeddings.get_embedding(text))
+    except Exception as e:
+        logger.warning("Embedding non généré : %s", e)
+
     conn = sqlite3.connect(DB_PATH)
     cur = conn.execute(
         """INSERT INTO captures
            (created_at, source, media_type, file_path, telegram_file_id,
-            description, category, tags, item_type, url, platform, title, thumbnail_path, user_note)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            description, category, tags, item_type, url, platform, title, thumbnail_path,
+            user_note, embedding)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             datetime.now(timezone.utc).isoformat(),
             "telegram",
@@ -93,6 +113,7 @@ def save_to_db(item_type: str, file_path: str, file_id: str, metadata: Optional[
             title,
             thumbnail_path,
             user_note,
+            embedding_json,
         ),
     )
     row_id = cur.lastrowid
@@ -102,31 +123,17 @@ def save_to_db(item_type: str, file_path: str, file_id: str, metadata: Optional[
 
 
 # ---------------------------------------------------------------------------
-# Recherche (logique partagée avec le web dans search_engine.py)
+# Recherche (agent avec outils, logique partagée avec le web dans agent.py)
 # ---------------------------------------------------------------------------
 
 async def run_search(update: Update, query: str):
-    if search_engine.db_is_empty():
-        await update.message.reply_text(
-            "Ta collection est vide pour l'instant. Envoie-moi des photos ou des liens pour commencer !"
-        )
-        return
-
     await update.message.reply_text("🔍 Recherche en cours…")
 
-    intent = ai_engine.extract_search_intent(query)
-    logger.info("Intention extraite : %s", intent)
-    results = search_engine.search_db(query, intent)
-    if not results:
-        await update.message.reply_text(
-            "Aucun élément trouvé pour cette recherche, essaie avec d'autres mots-clés."
-        )
-        return
-
-    await update.message.reply_text(search_engine.summarize_results(query, results))
+    result = agent.chat(query)
+    await update.message.reply_text(result["response"])
 
     # Envoyer les 3 premiers résultats : image ou lien
-    for row in results[:3]:
+    for row in result["items"][:3]:
         if row.get("item_type") == "link":
             text = f"🔗 {row.get('title') or row['url']}\n{row['url']}"
             await update.message.reply_text(text)
@@ -221,7 +228,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💬 Envoie-moi du texte : je cherche dans ta collection (images ET liens).\n\n"
         "Commandes :\n"
         "/moteur — voir ou changer le moteur IA (local/cloud/auto)\n"
-        "/stats — statistiques de ta collection"
+        "/stats — statistiques de ta collection\n"
+        "/post <canal> <sujet> — génère un post prêt à publier depuis ta collection "
+        "(ex. /post twitter chaussures tendance hiver)"
     )
 
 
@@ -242,6 +251,39 @@ async def moteur(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `auto` — local d'abord, cloud en secours\n\n"
         "Pour changer : /moteur local | cloud | auto",
         parse_mode="Markdown",
+    )
+
+
+async def post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        channels = ", ".join(content_studio.CHANNELS.keys())
+        await update.message.reply_text(
+            "Utilise : /post <canal> <sujet>\n"
+            "Ex. /post twitter chaussures tendance hiver\n"
+            f"Canaux avec limite de longueur gérée : {channels}\n"
+            "(tout autre mot fonctionne aussi comme canal libre)"
+        )
+        return
+
+    channel = context.args[0].lower()
+    topic = " ".join(context.args[1:]).strip()
+    if not topic:
+        await update.message.reply_text("Précise un sujet après le canal, ex. /post twitter sneakers tendance.")
+        return
+
+    await update.message.reply_text("✍️ Génération du post en cours…")
+    result = content_studio.generate_draft(topic, channel)
+
+    if "error" in result:
+        await update.message.reply_text(f"⚠️ {result['error']}")
+        return
+
+    limit = f"/{result['max_chars']}" if result.get("max_chars") else ""
+    warn = " (⚠️ tronqué pour respecter la limite)" if result.get("truncated") else ""
+    await update.message.reply_text(
+        f"📝 Brouillon [{result['channel_label']}] — {result['char_count']}{limit} caractères{warn}\n\n"
+        f"{result['content']}\n\n"
+        "Modifiable dans l'onglet Studio de l'interface web avant publication."
     )
 
 
@@ -332,6 +374,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("moteur", moteur))
     app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("post", post))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 

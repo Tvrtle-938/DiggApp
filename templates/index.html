@@ -436,6 +436,128 @@
       cursor: pointer;
     }
     .chat-input button:disabled { opacity: 0.5; }
+
+    /* =====================================================================
+       STUDIO DE CONTENU -- bouton flottant + panneau (calque sur le chat)
+       ===================================================================== */
+    .studio-fab {
+      position: fixed;
+      bottom: 88px;
+      right: 16px;
+      width: 50px;
+      height: 50px;
+      border-radius: 14px;
+      background: var(--card);
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      font-size: 1.25rem;
+      cursor: pointer;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+      z-index: 90;
+    }
+
+    .studio-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .studio-form { display: flex; flex-direction: column; gap: 8px; }
+    .studio-form input, .studio-form select {
+      background: var(--card);
+      border: 1px solid var(--card-edge);
+      border-radius: 8px;
+      padding: 11px 12px;
+      color: var(--text);
+      font-size: 0.95rem;
+      outline: none;
+      font-family: inherit;
+    }
+    .studio-form input:focus, .studio-form select:focus { border-color: var(--accent); }
+    .studio-form button {
+      background: var(--accent);
+      color: #1a1410;
+      border: none;
+      border-radius: 8px;
+      padding: 11px;
+      font-weight: 800;
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+    .studio-form button:disabled { opacity: 0.5; }
+
+    .draft-error {
+      font-size: 0.8rem;
+      color: var(--cat-audiovisuel);
+      display: none;
+    }
+
+    .draft-card {
+      background: var(--card);
+      border: 1px solid var(--card-edge);
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .draft-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      flex-wrap: wrap;
+    }
+    .draft-meta .status {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .draft-meta .status.draft { background: var(--accent); color: #1a1410; }
+    .draft-meta .status.published { background: var(--cat-sport); color: #1a1410; }
+    .draft-meta .status.discarded { background: var(--card-edge); color: var(--text-dim); }
+    .draft-card textarea {
+      background: var(--bg);
+      border: 1px solid var(--card-edge);
+      border-radius: 6px;
+      padding: 10px;
+      color: var(--text);
+      font-size: 0.88rem;
+      line-height: 1.4;
+      min-height: 90px;
+      resize: vertical;
+      font-family: inherit;
+    }
+    .draft-char-count { font-size: 0.72rem; color: var(--text-dim); }
+    .draft-char-count.over { color: var(--cat-audiovisuel); font-weight: 700; }
+    .draft-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .draft-actions button {
+      background: transparent;
+      border: 1px solid var(--card-edge);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 0.78rem;
+      cursor: pointer;
+    }
+    .draft-actions button.primary { border-color: var(--accent); color: var(--accent); }
+    .draft-actions button.danger { border-color: var(--cat-audiovisuel); color: var(--cat-audiovisuel); }
+
+    /* =====================================================================
+       FOOTER -- mention confidentialite (donnees locales uniquement)
+       ===================================================================== */
+    footer.privacy-note {
+      text-align: center;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      padding: 10px 20px 90px;
+    }
   </style>
 </head>
 <body>
@@ -471,6 +593,12 @@
     <div class="empty" id="empty" style="display:none">Rien trouvé par ici. Creuse ailleurs ⛏️</div>
   </main>
 
+  <footer class="privacy-note">
+    Application personnelle : tes données (captures, liens, notes) restent stockées en local dans
+    hub.db et ne sont partagées avec aucun tiers, hormis les appels ponctuels aux moteurs IA
+    (Ollama en local, ou Gemini si le mode cloud est actif) nécessaires à l'analyse du contenu.
+  </footer>
+
   <!-- ================= CHAT IA ================= -->
   <button class="chat-fab" id="chatFab" title="Chat IA">⛏️</button>
 
@@ -489,6 +617,33 @@
       <input type="text" id="chatText" placeholder="Ta question…" autocomplete="off">
       <button type="submit" id="chatSend">➤</button>
     </form>
+  </div>
+
+  <!-- ================= STUDIO DE CONTENU ================= -->
+  <button class="studio-fab" id="studioFab" title="Studio de contenu">📝</button>
+
+  <div class="chat-panel" id="studioPanel">
+    <div class="chat-head">
+      <div>
+        <div class="t">Studio de contenu</div>
+        <div class="s">génère des posts prêts à publier depuis ta collection</div>
+      </div>
+      <button id="studioClose">✕</button>
+    </div>
+    <div class="studio-body">
+      <form class="studio-form" id="studioForm">
+        <input type="text" id="studioTopic" placeholder="Sujet (ex. chaussures tendance hiver)" autocomplete="off">
+        <select id="studioType">
+          <option value="post">📝 Post texte (réseau social / newsletter)</option>
+          <option value="script">🎬 Script de tournage (vidéo courte)</option>
+          <option value="ai_prompt">🎨 Prompt pour IA générative (image/vidéo)</option>
+        </select>
+        <select id="studioChannel"></select>
+        <button type="submit" id="studioGenerate">✍️ Générer</button>
+      </form>
+      <div class="draft-error" id="studioError"></div>
+      <div id="studioDrafts"></div>
+    </div>
   </div>
 
   <script>
@@ -610,7 +765,7 @@
 
       // Visuel : image pour les captures, miniature pour les liens, sinon placeholder
       const visual = item.image
-        ? `<img src="/${esc(item.image)}" alt="" loading="lazy">`
+        ? `<img src="/${esc(item.image)}" alt="${esc(title)}" loading="lazy">`
         : `<div class="placeholder">${esc(typeLabel)}</div>`;
 
       const catBadge = item.category
@@ -687,7 +842,8 @@
         a.rel = "noopener";
         // Lien → son URL ; image → le fichier image lui-même
         a.href = isLink && item.url ? item.url : (item.image ? "/" + item.image : "#");
-        const img = item.image ? `<img src="/${esc(item.image)}" alt="" loading="lazy">` : "";
+        const altText = item.title || item.description || "";
+        const img = item.image ? `<img src="/${esc(item.image)}" alt="${esc(altText)}" loading="lazy">` : "";
         a.innerHTML = `${img}
           <div class="mc-body">
             <div class="mc-cat" style="color:${catColor(item.category)}">${esc(item.category || "?")}</div>
@@ -724,6 +880,147 @@
         thinking.textContent = "Impossible de joindre le serveur, réessaie.";
       } finally {
         send.disabled = false;
+      }
+    });
+
+    /* ===================================================================
+       STUDIO DE CONTENU
+       =================================================================== */
+    const studioPanel = document.getElementById("studioPanel");
+    const studioDraftsEl = document.getElementById("studioDrafts");
+    const studioTypeEl = document.getElementById("studioType");
+    const studioChannelEl = document.getElementById("studioChannel");
+    const studioErrorEl = document.getElementById("studioError");
+    const targetsCache = {};
+
+    const TYPE_LABELS = { post: "Post", script: "Script vidéo", ai_prompt: "Prompt IA" };
+
+    document.getElementById("studioFab").onclick = async () => {
+      studioPanel.classList.add("open");
+      await loadTargets(studioTypeEl.value);
+      loadDrafts();
+    };
+    document.getElementById("studioClose").onclick = () => studioPanel.classList.remove("open");
+
+    async function loadTargets(type) {
+      if (!targetsCache[type]) {
+        try {
+          const res = await fetch("/api/targets?type=" + encodeURIComponent(type));
+          const data = await res.json();
+          targetsCache[type] = data.targets;
+        } catch (err) {
+          targetsCache[type] = [];
+        }
+      }
+      const items = targetsCache[type];
+      studioChannelEl.innerHTML = items.length
+        ? items.map(c => `<option value="${esc(c.key)}">${esc(c.label)}${c.max_chars ? ` (${c.max_chars} car. max)` : ""}</option>`).join("")
+        : `<option value="">(indisponible)</option>`;
+    }
+
+    studioTypeEl.addEventListener("change", () => loadTargets(studioTypeEl.value));
+
+    function draftStatusLabel(status) {
+      return { draft: "brouillon", published: "publié", discarded: "écarté" }[status] || status;
+    }
+
+    function buildDraftCard(draft) {
+      const el = document.createElement("div");
+      el.className = "draft-card";
+      const maxTxt = draft.max_chars ? ` / ${draft.max_chars}` : "";
+      el.innerHTML = `
+        <div class="draft-meta">
+          <span class="status ${esc(draft.status)}">${esc(draftStatusLabel(draft.status))}</span>
+          <span>${esc(TYPE_LABELS[draft.content_type] || draft.content_type || "")}</span>
+          <span>${esc(draft.channel_label || draft.channel)}</span>
+          <span>· ${esc(draft.topic || "")}</span>
+        </div>
+        <textarea>${esc(draft.content)}</textarea>
+        <div class="draft-char-count">${draft.content.length}${maxTxt} caractères</div>
+        <div class="draft-actions">
+          <button type="button" class="primary" data-action="save">Enregistrer</button>
+          <button type="button" data-action="publish">Marquer publié</button>
+          <button type="button" class="danger" data-action="delete">Supprimer</button>
+        </div>`;
+
+      const textarea = el.querySelector("textarea");
+      const countEl = el.querySelector(".draft-char-count");
+      textarea.addEventListener("input", () => {
+        const len = textarea.value.length;
+        countEl.textContent = `${len}${maxTxt} caractères`;
+        countEl.classList.toggle("over", draft.max_chars ? len > draft.max_chars : false);
+      });
+
+      el.querySelector('[data-action="save"]').onclick = async () => {
+        await fetch(`/api/drafts/${draft.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: textarea.value }),
+        });
+      };
+      el.querySelector('[data-action="publish"]').onclick = async () => {
+        await fetch(`/api/drafts/${draft.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "published" }),
+        });
+        loadDrafts();
+      };
+      el.querySelector('[data-action="delete"]').onclick = async () => {
+        await fetch(`/api/drafts/${draft.id}`, { method: "DELETE" });
+        loadDrafts();
+      };
+      return el;
+    }
+
+    async function loadDrafts() {
+      studioDraftsEl.innerHTML = `<div class="empty">Chargement…</div>`;
+      try {
+        const res = await fetch("/api/drafts");
+        const data = await res.json();
+        studioDraftsEl.innerHTML = "";
+        if (!data.drafts.length) {
+          studioDraftsEl.innerHTML = `<div class="empty">Aucun brouillon pour l'instant — génère ton premier post ci-dessus.</div>`;
+          return;
+        }
+        for (const draft of data.drafts) {
+          studioDraftsEl.appendChild(buildDraftCard(draft));
+        }
+      } catch (err) {
+        studioDraftsEl.innerHTML = `<div class="empty">Impossible de charger les brouillons.</div>`;
+      }
+    }
+
+    document.getElementById("studioForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const topic = document.getElementById("studioTopic").value.trim();
+      const contentType = studioTypeEl.value;
+      const target = studioChannelEl.value;
+      if (!topic || !target) return;
+      const btn = document.getElementById("studioGenerate");
+      btn.disabled = true;
+      btn.textContent = "⛏️ Génération…";
+      studioErrorEl.style.display = "none";
+      try {
+        const res = await fetch("/api/drafts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ topic, content_type: contentType, target }),
+        });
+        const data = await res.json();
+        if (data.error) {
+          studioErrorEl.textContent = data.error;
+          studioErrorEl.style.display = "block";
+        } else {
+          document.getElementById("studioTopic").value = "";
+          loadDrafts();
+        }
+      } catch (err) {
+        studioErrorEl.textContent = "Erreur pendant la génération, réessaie.";
+        studioErrorEl.style.display = "block";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "✍️ Générer";
       }
     });
 

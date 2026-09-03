@@ -87,6 +87,7 @@ RULES:
 - tags must be consistent with the chosen category (if the tags are about fashion, the category cannot be sport)
 - tags: 3 to 6, in French, lowercase, SPECIFIC (brand, model, material, style, dish name). NEVER generic words like "photo", "image", "vidéo", "contenu", and NEVER platform names like "tiktok", "instagram", "youtube", "pinterest"
 - description: one factual French sentence describing the CONTENT itself (product, subject, brand, price), not the medium or the platform
+- description MUST include the USE or usage context of the object when it can be deduced (from the model, brand, design or context), not only a neutral visual description. Example: for Asics Gel-Kayano sneakers, write "Chaussures de running Asics Gel-Kayano, modèle de course à pied", NOT just "Paire de baskets Asics Gel-Kayano". Same idea for e.g. "veste de sport d'entraînement", "fauteuil de salon scandinave"
 - if a price or a product reference is visible, include it in the description
 
 Respond with ONLY a valid JSON object (no markdown, no explanation) in this exact format:

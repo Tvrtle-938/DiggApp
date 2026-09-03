@@ -11,6 +11,8 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
+import agent
+import content_studio
 import search_engine
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -84,17 +86,63 @@ def api_items():
 
 @app.route("/api/chat", methods=["POST"])
 def api_chat():
-    """Chat IA : même pipeline intention → recherche → synthèse que le bot Telegram."""
+    """Chat IA : même boucle d'agent avec outils que le bot Telegram."""
     data = request.get_json(silent=True) or {}
     message = (data.get("message") or "").strip()
     if not message:
         return jsonify({"response": "Pose-moi une question sur ta collection !", "items": []})
 
-    result = search_engine.chat(message)
+    result = agent.chat(message)
     return jsonify({
         "response": result["response"],
         "items": [serialize(r) for r in result["items"]],
     })
+
+
+# --- Studio de contenu : génération et gestion des brouillons de posts ---
+
+@app.route("/api/targets")
+def api_targets():
+    """Cibles disponibles pour le Studio, selon le type de contenu (?type=post|script|ai_prompt)."""
+    content_type = request.args.get("type", "post")
+    if content_type == "script":
+        targets = content_studio.script_format_list()
+    elif content_type == "ai_prompt":
+        targets = content_studio.asset_type_list()
+    else:
+        targets = content_studio.channel_list()
+    return jsonify({"targets": targets})
+
+
+@app.route("/api/drafts", methods=["GET"])
+def api_drafts_list():
+    status = request.args.get("status")
+    return jsonify({"drafts": content_studio.list_drafts(status)})
+
+
+@app.route("/api/drafts", methods=["POST"])
+def api_drafts_generate():
+    data = request.get_json(silent=True) or {}
+    topic = (data.get("topic") or "").strip()
+    content_type = (data.get("content_type") or "post").strip().lower()
+    target = (data.get("target") or "").strip()
+    if not topic or not target:
+        return jsonify({"error": "Sujet et cible requis."}), 400
+    result = content_studio.generate_draft(topic, target, content_type=content_type)
+    return jsonify(result), (200 if "error" not in result else 422)
+
+
+@app.route("/api/drafts/<int:draft_id>", methods=["PUT"])
+def api_drafts_update(draft_id):
+    data = request.get_json(silent=True) or {}
+    ok = content_studio.update_draft(draft_id, content=data.get("content"), status=data.get("status"))
+    return jsonify({"ok": ok})
+
+
+@app.route("/api/drafts/<int:draft_id>", methods=["DELETE"])
+def api_drafts_delete(draft_id):
+    ok = content_studio.delete_draft(draft_id)
+    return jsonify({"ok": ok})
 
 
 # --- Fichiers : images, miniatures et assets (logo) ---
