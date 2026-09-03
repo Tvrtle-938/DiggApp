@@ -47,7 +47,19 @@
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       min-height: 100vh;
+      min-height: 100dvh;       /* mobile : suit la barre d'URL qui se replie */
+      display: flex;
+      flex-direction: column;   /* permet à la page Digg d'occuper tout le reste */
     }
+
+    /* Bascule entre les deux vues : "Digg" (accueil conversationnel, défaut)
+       et "Collection" (grille + filtres). Un seul document, on masque l'autre. */
+    body.view-digg .searchbar,
+    body.view-digg .chips,
+    body.view-digg .type-toggle,
+    body.view-digg main,
+    body.view-digg footer.privacy-note { display: none; }
+    body:not(.view-digg) .digg { display: none; }
 
     /* =====================================================================
        HEADER — sticky, reste visible au scroll
@@ -120,6 +132,29 @@
     }
     .searchbar input:focus { border-color: var(--accent); }
     .searchbar input::placeholder { color: var(--text-dim); }
+
+    /* Onglets Digg / Collection — même langage visuel que le toggle de type */
+    .tabs {
+      display: flex;
+      margin-bottom: 10px;
+      border: 1px solid var(--card-edge);
+      border-radius: 6px;
+      overflow: hidden;
+      width: fit-content;
+    }
+    .tabs button {
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      padding: 8px 16px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .tabs button.active {
+      background: var(--accent);
+      color: #1a1410;
+    }
 
     /* =====================================================================
        FILTRES — chips catégories scrollables + toggle type
@@ -291,24 +326,9 @@
     }
 
     /* =====================================================================
-       CHAT IA — bulle flottante + panneau (plein écran sur mobile)
+       PANNEAU FLOTTANT — utilisé par le studio de contenu
+       (plein écran sur mobile, ancré en bas à droite sur desktop)
        ===================================================================== */
-    .chat-fab {
-      position: fixed;
-      bottom: 20px;
-      right: 16px;
-      width: 58px;
-      height: 58px;
-      border-radius: 14px;         /* carré arrondi, pas un rond : esprit bloc */
-      background: var(--accent);
-      color: #1a1410;
-      border: none;
-      font-size: 1.5rem;
-      cursor: pointer;
-      box-shadow: 0 4px 18px rgba(201, 135, 58, 0.35);
-      z-index: 90;
-    }
-
     .chat-panel {
       position: fixed;
       inset: 0;                    /* mobile : plein écran */
@@ -354,15 +374,7 @@
       cursor: pointer;
     }
 
-    .chat-msgs {
-      flex: 1;
-      overflow-y: auto;
-      padding: 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-
+    /* Bulles de conversation — utilisées par la page Digg */
     .msg { max-width: 88%; padding: 10px 13px; border-radius: 10px; font-size: 0.9rem; line-height: 1.45; }
     .msg.user {
       align-self: flex-end;
@@ -405,44 +417,175 @@
       color: var(--text-dim);
     }
 
-    .chat-input {
+    /* =====================================================================
+       PAGE DIGG — accueil conversationnel : fond "dirt block", bulle de
+       saisie centrée à l'état initial, qui glisse en bas dès la première
+       question (le spacer du bas se replie, transition sur flex-grow).
+       ===================================================================== */
+    .digg {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      background-image: url("/static/img/dirt-bg.jpg");
+      background-size: cover;        /* jamais de zoom/répétition disgracieux */
+      background-position: center;
+    }
+    /* Overlay sombre par-dessus la texture : garantit la lisibilité du texte,
+       et s'opacifie un peu plus une fois en mode conversation */
+    .digg::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: rgba(20, 16, 13, 0.52);
+      transition: background 0.5s ease;
+      pointer-events: none;
+    }
+    .digg.chatting::before { background: rgba(20, 16, 13, 0.75); }
+    .digg > * { position: relative; z-index: 1; }   /* contenu au-dessus de l'overlay */
+
+    .digg-msgs {
+      flex: 1 1 0;
+      min-height: 0;                 /* autorise le scroll interne */
+      overflow-y: auto;
+      width: 100%;
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 18px 14px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .digg-hero {
+      text-align: center;
+      padding: 0 20px 18px;
+      max-height: 240px;
+      overflow: hidden;
+      transition: opacity 0.35s ease, max-height 0.5s ease, padding 0.5s ease;
+    }
+    .digg-hero h2 {
+      font-size: 1.5rem;
+      font-weight: 800;
+      /* Ombre portée : le titre reste lisible quel que soit le bloc derrière */
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
+      margin-bottom: 6px;
+    }
+    .digg-hero p {
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+    }
+    @media (min-width: 700px) { .digg-hero h2 { font-size: 1.9rem; } }
+
+    .digg-form {
       display: flex;
       gap: 8px;
-      padding: 12px 14px;
-      /* Marge de sécurité pour la barre home de l'iPhone */
-      padding-bottom: calc(12px + env(safe-area-inset-bottom));
-      background: var(--bg-header);
-      border-top: 2px solid var(--card-edge);
-    }
-    .chat-input input {
-      flex: 1;
-      background: var(--card);
+      width: min(100% - 28px, 680px);
+      margin: 0 auto;
+      padding: 8px;
+      background: rgba(42, 33, 24, 0.92);   /* --card semi-transparent */
       border: 1px solid var(--card-edge);
-      border-radius: 8px;
-      padding: 12px 14px;
+      border-radius: 16px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+    }
+    .digg-form:focus-within { border-color: var(--accent); }
+    .digg-form input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      padding: 12px 10px;
       color: var(--text);
-      font-size: 1rem;
+      font-size: 1rem;               /* 16px min : évite le zoom auto iOS */
       outline: none;
     }
-    .chat-input input:focus { border-color: var(--accent); }
-    .chat-input button {
+    .digg-form input::placeholder { color: var(--text-dim); opacity: 0.8; }
+    .digg-form button {
       background: var(--accent);
       color: #1a1410;
       border: none;
-      border-radius: 8px;
-      padding: 0 18px;
+      border-radius: 10px;
+      width: 46px;
       font-weight: 800;
       font-size: 1rem;
       cursor: pointer;
     }
-    .chat-input button:disabled { opacity: 0.5; }
+    .digg-form button:disabled { opacity: 0.5; }
+    /* Marge de sécurité pour la barre home de l'iPhone une fois en bas */
+    .digg.chatting .digg-form { margin-bottom: calc(14px + env(safe-area-inset-bottom)); }
+
+    .digg-sugg {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      padding: 14px 14px 0;
+      max-height: 200px;
+      overflow: hidden;
+      transition: opacity 0.35s ease, max-height 0.5s ease, padding 0.5s ease;
+    }
+    .digg-sugg button {
+      background: rgba(42, 33, 24, 0.85);
+      border: 1px solid var(--card-edge);
+      color: var(--text-dim);
+      border-radius: 999px;
+      padding: 9px 14px;
+      font-size: 0.82rem;
+      cursor: pointer;
+    }
+    .digg-sugg button:hover { border-color: var(--accent); color: var(--text); }
+
+    /* État conversation : le héro et les suggestions se replient... */
+    .digg.chatting .digg-hero,
+    .digg.chatting .digg-sugg {
+      max-height: 0;
+      opacity: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+      pointer-events: none;
+    }
+    /* ...et le spacer du bas s'écrase : la bulle glisse vers le bas */
+    .digg-spacer { flex: 1 1 0; transition: flex-grow 0.5s ease; }
+    .digg.chatting .digg-spacer { flex-grow: 0; }
+
+    /* Attente : trois points qui pulsent (pas de spinner générique) */
+    .digg-wait { display: flex; align-items: center; gap: 5px; }
+    .digg-wait .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: digg-pulse 1.2s ease-in-out infinite;
+    }
+    .digg-wait .dot:nth-child(2) { animation-delay: 0.18s; }
+    .digg-wait .dot:nth-child(3) { animation-delay: 0.36s; }
+    @keyframes digg-pulse {
+      0%, 70%, 100% { opacity: 0.25; transform: translateY(0); }
+      35%           { opacity: 1;    transform: translateY(-4px); }
+    }
+
+    /* Les messages apparaissent en douceur */
+    .digg .msg, .digg .msg-items { animation: digg-in 0.3s ease; }
+    @keyframes digg-in { from { opacity: 0; transform: translateY(8px); } }
+
+    /* Vignettes un peu plus larges que dans l'ancien panneau étroit */
+    .digg .msg-items { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+
+    /* Accessibilité : pas d'animation si l'utilisateur les refuse */
+    @media (prefers-reduced-motion: reduce) {
+      .digg::before, .digg-hero, .digg-sugg, .digg-spacer { transition: none; }
+      .digg .msg, .digg .msg-items { animation: none; }
+      .digg-wait .dot { animation: none; opacity: 0.6; }
+    }
 
     /* =====================================================================
        STUDIO DE CONTENU -- bouton flottant + panneau (calque sur le chat)
        ===================================================================== */
     .studio-fab {
       position: fixed;
-      bottom: 88px;
+      bottom: 20px;
       right: 16px;
       width: 50px;
       height: 50px;
@@ -454,6 +597,11 @@
       cursor: pointer;
       box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
       z-index: 90;
+    }
+    /* Sur mobile, la bulle Digg occupe toute la largeur en bas : le bouton
+       studio remonte au-dessus pour ne pas couvrir le bouton d'envoi */
+    @media (max-width: 699px) {
+      body.view-digg .studio-fab { bottom: calc(88px + env(safe-area-inset-bottom)); }
     }
 
     .studio-body {
@@ -560,7 +708,7 @@
     }
   </style>
 </head>
-<body>
+<body class="view-digg">
 
   <!-- ================= HEADER ================= -->
   <header>
@@ -573,10 +721,33 @@
       </div>
       <div class="counter" id="counter">…</div>
     </div>
+    <nav class="tabs" id="tabs">
+      <button data-view="digg" class="active">⛏️ Digg</button>
+      <button data-view="collection">🧱 Collection</button>
+    </nav>
     <div class="searchbar">
       <input type="search" id="search" placeholder="Chercher dans ta collection…" autocomplete="off">
     </div>
   </header>
+
+  <!-- ================= PAGE DIGG — accueil conversationnel ================= -->
+  <section class="digg" id="digg">
+    <div class="digg-msgs" id="diggMsgs"></div>
+    <div class="digg-hero">
+      <h2>Que veux-tu déterrer ?</h2>
+      <p>Pose ta question, Digg fouille dans tout ce que tu as sauvegardé.</p>
+    </div>
+    <form class="digg-form" id="diggForm">
+      <input type="text" id="diggText" placeholder="Demander à Digg" autocomplete="off" enterkeyhint="send">
+      <button type="submit" id="diggSend" aria-label="Envoyer">➤</button>
+    </form>
+    <div class="digg-sugg" id="diggSugg">
+      <button type="button">Fais-moi une sélection de manches longues</button>
+      <button type="button">Qu'est-ce que j'ai sauvegardé en déco ?</button>
+      <button type="button">Crée un post X sur mes dernières trouvailles</button>
+    </div>
+    <div class="digg-spacer" aria-hidden="true"></div>
+  </section>
 
   <!-- ================= FILTRES ================= -->
   <div class="chips" id="chips"></div>
@@ -598,26 +769,6 @@
     hub.db et ne sont partagées avec aucun tiers, hormis les appels ponctuels aux moteurs IA
     (Ollama en local, ou Gemini si le mode cloud est actif) nécessaires à l'analyse du contenu.
   </footer>
-
-  <!-- ================= CHAT IA ================= -->
-  <button class="chat-fab" id="chatFab" title="Chat IA">⛏️</button>
-
-  <div class="chat-panel" id="chatPanel">
-    <div class="chat-head">
-      <div>
-        <div class="t">Creuseur IA</div>
-        <div class="s">pose une question sur ta collection</div>
-      </div>
-      <button id="chatClose">✕</button>
-    </div>
-    <div class="chat-msgs" id="chatMsgs">
-      <div class="msg bot">Salut ! Demande-moi ce que tu veux retrouver : « mes recettes », « des idées déco », « qu'est-ce que j'ai sauvegardé ? »…</div>
-    </div>
-    <form class="chat-input" id="chatForm">
-      <input type="text" id="chatText" placeholder="Ta question…" autocomplete="off">
-      <button type="submit" id="chatSend">➤</button>
-    </form>
-  </div>
 
   <!-- ================= STUDIO DE CONTENU ================= -->
   <button class="studio-fab" id="studioFab" title="Studio de contenu">📝</button>
@@ -809,32 +960,37 @@
     });
 
     /* ===================================================================
-       CHAT IA
+       ONGLETS — bascule entre l'accueil Digg et la grille Collection
        =================================================================== */
-    const panel = document.getElementById("chatPanel");
-    document.getElementById("chatFab").onclick = () => {
-      panel.classList.add("open");
-      document.getElementById("chatText").focus();
-    };
-    document.getElementById("chatClose").onclick = () => panel.classList.remove("open");
+    document.getElementById("tabs").addEventListener("click", (e) => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      document.querySelectorAll("#tabs button")
+        .forEach(b => b.classList.toggle("active", b === btn));
+      document.body.classList.toggle("view-digg", btn.dataset.view === "digg");
+    });
 
-    const msgs = document.getElementById("chatMsgs");
+    /* ===================================================================
+       PAGE DIGG — conversation avec l'agent (/api/chat)
+       =================================================================== */
+    const digg = document.getElementById("digg");
+    const diggMsgs = document.getElementById("diggMsgs");
 
     function addMsg(cls, text) {
       const el = document.createElement("div");
       el.className = "msg " + cls;
       el.textContent = text;
-      msgs.appendChild(el);
-      msgs.scrollTop = msgs.scrollHeight;   // scroll auto vers le bas
+      diggMsgs.appendChild(el);
+      diggMsgs.scrollTop = diggMsgs.scrollHeight;   // scroll auto vers le bas
       return el;
     }
 
-    /* Mini-grille de résultats affichée sous la réponse du bot */
+    /* Mini-grille de résultats affichée sous la réponse de l'agent */
     function addMsgItems(items) {
       if (!items.length) return;
       const wrap = document.createElement("div");
       wrap.className = "msg-items";
-      for (const item of items.slice(0, 8)) {   // max 8 cartes dans le chat
+      for (const item of items.slice(0, 8)) {   // max 8 cartes par réponse
         const isLink = item.item_type === "link";
         const a = document.createElement("a");
         a.className = "mini-card";
@@ -851,21 +1007,37 @@
           </div>`;
         wrap.appendChild(a);
       }
-      msgs.appendChild(wrap);
-      msgs.scrollTop = msgs.scrollHeight;
+      diggMsgs.appendChild(wrap);
+      diggMsgs.scrollTop = diggMsgs.scrollHeight;
     }
 
-    document.getElementById("chatForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const input = document.getElementById("chatText");
-      const send = document.getElementById("chatSend");
-      const question = input.value.trim();
-      if (!question) return;
+    /* Les suggestions remplissent la saisie (sans envoyer) */
+    document.getElementById("diggSugg").addEventListener("click", (e) => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      const input = document.getElementById("diggText");
+      input.value = btn.textContent;
+      input.focus();
+    });
 
+    document.getElementById("diggForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const input = document.getElementById("diggText");
+      const send = document.getElementById("diggSend");
+      const question = input.value.trim();
+      if (!question || send.disabled) return;
+
+      // Première question : la page passe en mode conversation (la bulle
+      // glisse en bas, le héro et les suggestions se replient)
+      digg.classList.add("chatting");
       addMsg("user", question);
       input.value = "";
       send.disabled = true;
-      const thinking = addMsg("bot", "⛏️ Je creuse…");
+
+      // Indicateur d'attente : trois points qui pulsent
+      const thinking = addMsg("bot", "");
+      thinking.classList.add("digg-wait");
+      thinking.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
 
       try {
         const res = await fetch("/api/chat", {
@@ -874,12 +1046,15 @@
           body: JSON.stringify({ message: question }),
         });
         const data = await res.json();
+        thinking.classList.remove("digg-wait");
         thinking.textContent = data.response;
         addMsgItems(data.items || []);
       } catch (err) {
+        thinking.classList.remove("digg-wait");
         thinking.textContent = "Impossible de joindre le serveur, réessaie.";
       } finally {
         send.disabled = false;
+        diggMsgs.scrollTop = diggMsgs.scrollHeight;
       }
     });
 
