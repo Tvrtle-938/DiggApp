@@ -628,6 +628,19 @@
       border-bottom-left-radius: 3px;
       white-space: pre-wrap;
     }
+    /* Badge discret du moteur IA (🖥️ local / ☁️ cloud) sous une réponse */
+    .engine-badge {
+      align-self: flex-start;
+      margin-top: -4px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(201, 135, 58, 0.12);
+      border: 1px solid var(--card-edge);
+      color: var(--text-dim);
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
 
     /* Mini-grille de résultats dans le chat */
     .msg-items {
@@ -1755,6 +1768,16 @@
       return el;
     }
 
+    /* Petit badge du moteur qui a produit la réponse (cohérent avec Telegram) */
+    function addEngineBadge(engine) {
+      if (engine !== "local" && engine !== "cloud") return;   // null = repli sans IA
+      const el = document.createElement("div");
+      el.className = "engine-badge";
+      el.textContent = engine === "local" ? "🖥️ local" : "☁️ cloud";
+      diggMsgs.appendChild(el);
+      diggMsgs.scrollTop = diggMsgs.scrollHeight;
+    }
+
     /* Mini-grille de résultats affichée sous la réponse de l'agent */
     function addMsgItems(items) {
       if (!items.length) return;
@@ -1818,6 +1841,7 @@
         const data = await res.json();
         thinking.classList.remove("digg-wait");
         thinking.textContent = data.response;
+        addEngineBadge(data.engine_used);
         addMsgItems(data.items || []);
       } catch (err) {
         thinking.classList.remove("digg-wait");

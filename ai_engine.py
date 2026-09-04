@@ -8,6 +8,7 @@ qui renvoie toujours le même format JSON :
 import os
 import re
 import json
+import time
 import base64
 import logging
 from pathlib import Path
@@ -29,6 +30,7 @@ GEMINI_GENERATION_CONFIG = {"thinkingConfig": {"thinkingLevel": "minimal"}}
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 AI_TIMEOUT = 60  # secondes, pour chaque appel IA
+GEMINI_RETRY_DELAY = 1.5  # secondes avant un unique retry sur panne temporaire Gemini
 
 VALID_CATEGORIES = [
     "mode", "sport", "cuisine", "restaurant", "deco", "tech",
@@ -55,6 +57,41 @@ def set_engine_mode(mode: str) -> bool:
     _engine_mode = mode
     logger.info("Mode moteur IA changé : %s", mode)
     return True
+
+
+def _is_transient_gemini_error(exc: Exception) -> bool:
+    """Panne temporaire côté Google : timeout réseau ou 503 (modèle surchargé).
+    Ce sont les seuls cas qui méritent un retry — une clé invalide (401/403) ou
+    une requête malformée (400) échoueront pareil au 2e essai."""
+    if isinstance(exc, (requests.Timeout, requests.ConnectionError)):
+        return True
+    resp = getattr(exc, "response", None)
+    return resp is not None and resp.status_code == 503
+
+
+def post_gemini(payload: dict) -> requests.Response:
+    """POST vers generateContent avec UN retry sur panne temporaire (503/timeout).
+
+    Partagé par tous les appels Gemini (analyse, intention, génération, agent).
+    Sur panne temporaire : attend GEMINI_RETRY_DELAY puis retente une fois. Si le
+    2e essai échoue aussi (ou si l'erreur n'est pas temporaire), lève l'exception —
+    l'appelant bascule alors sur le local. Les deux cas sont logués distinctement.
+    """
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY manquante dans .env")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+    headers = {"x-goog-api-key": GEMINI_API_KEY}
+    for attempt in (1, 2):
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=AI_TIMEOUT)
+            resp.raise_for_status()
+            return resp
+        except Exception as e:
+            if attempt == 1 and _is_transient_gemini_error(e):
+                logger.warning("Gemini : panne temporaire (%s) — RETRY dans %.1fs", e, GEMINI_RETRY_DELAY)
+                time.sleep(GEMINI_RETRY_DELAY)
+                continue
+            raise
 
 
 CATEGORY_REFERENTIAL = """CATEGORIES (pick exactly ONE, the DOMINANT one):
@@ -134,19 +171,10 @@ def _analyze_local(prompt: str, image_b64: Optional[str]) -> dict:
 
 
 def _analyze_cloud(prompt: str, image_b64: Optional[str]) -> dict:
-    if not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY manquante dans .env")
     parts = [{"text": prompt}]
     if image_b64:
         parts.append({"inline_data": {"mime_type": "image/jpeg", "data": image_b64}})
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
-    resp = requests.post(
-        url,
-        headers={"x-goog-api-key": GEMINI_API_KEY},
-        json={"contents": [{"parts": parts}], "generationConfig": GEMINI_GENERATION_CONFIG},
-        timeout=AI_TIMEOUT,
-    )
-    resp.raise_for_status()
+    resp = post_gemini({"contents": [{"parts": parts}], "generationConfig": GEMINI_GENERATION_CONFIG})
     raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
     return _parse_metadata(raw)
 
@@ -198,7 +226,7 @@ def analyze(content, content_type: str = "text", image_path: Optional[Path] = No
         result["engine_used"] = "cloud"
         return result
     except Exception as e:
-        logger.error("Moteur cloud indisponible (%s)", e)
+        logger.error("Gemini KO après retry → bascule locale définitive (%s)", e)
         # Le résultat local "autre" reste meilleur que rien si le cloud échoue
         return local_result
 
@@ -239,20 +267,11 @@ Query: "{query}" """
 
     if raw is None:
         try:
-            if not GEMINI_API_KEY:
-                raise ValueError("GEMINI_API_KEY manquante dans .env")
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
-            resp = requests.post(
-                url,
-                headers={"x-goog-api-key": GEMINI_API_KEY},
-                json={"contents": [{"parts": [{"text": prompt}]}],
-                      "generationConfig": GEMINI_GENERATION_CONFIG},
-                timeout=AI_TIMEOUT,
-            )
-            resp.raise_for_status()
+            resp = post_gemini({"contents": [{"parts": [{"text": prompt}]}],
+                                "generationConfig": GEMINI_GENERATION_CONFIG})
             raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
         except Exception as e:
-            logger.error("Moteur cloud indisponible pour l'intention (%s)", e)
+            logger.error("Gemini KO après retry pour l'intention → abandon (%s)", e)
             return None
 
     try:
@@ -287,18 +306,9 @@ def generate_text(prompt: str) -> Optional[str]:
                 return None
 
     try:
-        if not GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY manquante dans .env")
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
-        resp = requests.post(
-            url,
-            headers={"x-goog-api-key": GEMINI_API_KEY},
-            json={"contents": [{"parts": [{"text": prompt}]}],
-                  "generationConfig": GEMINI_GENERATION_CONFIG},
-            timeout=AI_TIMEOUT,
-        )
-        resp.raise_for_status()
+        resp = post_gemini({"contents": [{"parts": [{"text": prompt}]}],
+                            "generationConfig": GEMINI_GENERATION_CONFIG})
         return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception as e:
-        logger.error("Moteur cloud indisponible pour la génération (%s)", e)
+        logger.error("Gemini KO après retry pour la génération → abandon (%s)", e)
         return None

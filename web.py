@@ -158,6 +158,7 @@ def api_chat():
     return jsonify({
         "response": result["response"],
         "items": [serialize(r) for r in result["items"]],
+        "engine_used": result.get("engine_used"),
     })
 
 

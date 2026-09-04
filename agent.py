@@ -44,13 +44,26 @@ SYSTEM_PROMPT = """Tu es l'assistant d'une collection personnelle de contenus sa
 films/séries, inspiration.
 
 RÈGLES ABSOLUES :
-1. Tu DOIS appeler les outils pour vérifier ce qu'il y a dans la collection AVANT de \
-répondre. N'invente JAMAIS un élément, un titre ou un chiffre.
+0. JUGEMENT PRÉALABLE (avant TOUT appel d'outil) : demande-toi si la question concerne \
+PLAUSIBLEMENT une recherche dans une collection personnelle de contenus sauvegardés \
+(mode, sport, cuisine, restaurants, déco, tech, audiovisuel, tutos, films/séries, \
+inspiration...). \
+- Si OUI → utilise les outils. \
+- Si la question porte sur l'heure, la date, la météo, un calcul, une question de culture \
+générale, une salutation ("ça va ?"), ou toute autre chose SANS lien avec la collection → \
+n'appelle AUCUN outil et réponds directement, en une phrase, que tu ne gères que la \
+collection sauvegardée et que tu ne peux pas répondre à ça. \
+- Ne transforme JAMAIS une question hors-sujet en recherche en pêchant un mot au hasard \
+(ex. ne cherche pas "heure" ou "hifi" pour la question "il est quel h ?").
+1. Quand la question concerne la collection, tu DOIS appeler les outils pour vérifier ce \
+qu'il y a dedans AVANT de répondre. N'invente JAMAIS un élément, un titre ou un chiffre.
 2. Si les outils ne renvoient rien de pertinent (scores faibles, résultats hors sujet), \
 dis-le clairement : "Je n'ai rien trouvé là-dessus dans ta collection." Ne force pas \
 une réponse vague.
-3. Si la question est hors sujet (météo, actualités, culture générale...), explique que \
-tu ne gères que la collection sauvegardée et que tu n'as pas cette information.
+3. La query envoyée à search_semantic doit être un CONCEPT clair extrait de la question \
+(ex. "looks streetwear", "sneakers running"), jamais un mot isolé sans rapport évident \
+avec ce que l'utilisateur demande. Si tu n'arrives pas à extraire un concept net de la \
+collection depuis la question, ne devine pas : demande une reformulation.
 4. Si la question couvre plusieurs sujets, fais plusieurs appels d'outils (par exemple \
 une recherche sémantique par sujet, ou catégorie + recherche) avant de répondre.
 5. Les scores de search_semantic sont RELATIFS, pas un pourcentage de confiance absolu : \
@@ -80,6 +93,18 @@ titre et les tags") — ne modifie QUE les champs concernés par la correction.
 utilise-le tel quel ; sinon retrouve l'élément avec les outils de recherche d'abord. Ne devine \
 JAMAIS un id. Après une action, confirme dans ta réponse ce qui a été fait (élément touché, \
 champs modifiés, brouillon créé et sa cible).
+
+EXEMPLES :
+- "il est quel h ?" → AUCUN outil. Réponse : "Je ne gère que ta collection sauvegardée, \
+je ne connais pas l'heure." [[items:]]
+- "ça va ?" → AUCUN outil. Réponse : "Ça va ! Mais je sers surtout à retrouver des choses \
+dans ta collection — dis-moi ce que tu cherches." [[items:]]
+- "c'est quoi la capitale du Japon ?" → AUCUN outil. Réponse : "Je ne réponds qu'aux \
+questions sur ta collection, pas à la culture générale." [[items:]]
+- "montre-moi mes sneakers" → search_semantic(query="sneakers") puis liste les éléments \
+mode correspondants.
+- "des idées de looks streetwear" (formulation indirecte mais sur la collection) → \
+search_semantic(query="looks streetwear") puis liste ce qui correspond.
 
 RÉPONSE : en français, concise. Liste clairement les éléments trouvés (titre ou \
 description, catégorie, URL pour les liens). Pas de longs paragraphes. Ne mentionne \
@@ -318,6 +343,16 @@ def _collect(collected: dict, tool_name: str, new_items: list):
 # que l'agent cite réellement, ex. "[[items: 3, 9]]"
 _ITEMS_MARKER_RE = re.compile(r"\[\[\s*items\s*:\s*([0-9,\s]*)\]\]")
 
+# Formules de refus hors-sujet ou d'absence de résultat : si l'agent répond ça,
+# on n'attache AUCUNE vignette — même si un outil a été appelé à tort (cas du
+# modèle local 3B qui cherche avant de refuser une question hors-sujet).
+_NO_ITEMS_ANSWER_RE = re.compile(
+    r"je ne g[eè]re que|ne g[eè]re que ta collection|ne connais pas|"
+    r"culture g[eé]n[eé]rale|rien trouv[eé]|pas cette information|"
+    r"ne r[eé]ponds qu",
+    re.IGNORECASE,
+)
+
 
 def _finalize_answer(answer: str, collected: dict) -> tuple:
     """Retire le marqueur [[items: ...]] du texte et choisit les vignettes.
@@ -331,6 +366,10 @@ def _finalize_answer(answer: str, collected: dict) -> tuple:
         answer = _ITEMS_MARKER_RE.sub("", answer).strip()
     if collected["action"]:
         return answer, list(collected["action"].values())
+    # Refus hors-sujet ou aucun résultat : pas de vignettes, quoi qu'aient
+    # renvoyé les outils (garde-fou pour le modèle local qui cherche à tort).
+    if _NO_ITEMS_ANSWER_RE.search(answer):
+        return answer, []
     if not match:
         return answer, list(collected["search"].values())
 
@@ -415,25 +454,16 @@ def _gemini_tools() -> list:
 
 
 def _agent_loop_gemini(message: str, collected: dict) -> str:
-    if not ai_engine.GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY manquante dans .env")
-    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-           f"{ai_engine.GEMINI_MODEL}:generateContent")
     contents = [{"role": "user", "parts": [{"text": message}]}]
 
     for _ in range(MAX_TOOL_ROUNDS):
-        resp = requests.post(
-            url,
-            headers={"x-goog-api-key": ai_engine.GEMINI_API_KEY},
-            json={
-                "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-                "contents": contents,
-                "tools": _gemini_tools(),
-                "generationConfig": ai_engine.GEMINI_GENERATION_CONFIG,
-            },
-            timeout=ai_engine.AI_TIMEOUT,
-        )
-        resp.raise_for_status()
+        # post_gemini gère la clé, l'URL et le retry sur panne temporaire (503/timeout)
+        resp = ai_engine.post_gemini({
+            "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+            "contents": contents,
+            "tools": _gemini_tools(),
+            "generationConfig": ai_engine.GEMINI_GENERATION_CONFIG,
+        })
         model_content = resp.json()["candidates"][0]["content"]
         parts = model_content.get("parts", [])
         calls = [p["functionCall"] for p in parts if "functionCall" in p]
@@ -513,12 +543,15 @@ def db_is_empty() -> bool:
 def chat(message: str) -> dict:
     """Répond à une question sur la collection via la boucle d'agent.
 
-    Retourne {"response": str, "items": [...]}, ne lève jamais d'exception.
+    Retourne {"response": str, "items": [...], "engine_used": "local"|"cloud"|None},
+    ne lève jamais d'exception. engine_used vaut None quand aucun moteur IA n'a
+    répondu (collection vide, ou repli sur la recherche sémantique sans agent).
     """
     try:
         if db_is_empty():
             return {"response": "Ta collection est vide pour l'instant. Envoie des photos "
-                                "ou des liens au bot Telegram pour commencer !", "items": []}
+                                "ou des liens au bot Telegram pour commencer !",
+                    "items": [], "engine_used": None}
 
         mode = ai_engine.get_engine_mode()
         # Deux ensembles de vignettes : "search" (consultations) et "action"
@@ -540,17 +573,18 @@ def chat(message: str) -> dict:
                 answer = agent_loop(message, collected)
                 logger.info("Agent : réponse fournie par le moteur %s", engine_name)
                 answer, items = _finalize_answer(answer, collected)
-                return {"response": answer, "items": items}
+                return {"response": answer, "items": items, "engine_used": engine_name}
             except Exception as e:
                 logger.warning("Agent %s indisponible (%s)", engine_name, e)
                 collected["search"].clear()
                 collected["action"].clear()
 
-        return _fallback_search(message)
+        # Aucun moteur IA n'a répondu : repli sur la recherche sémantique brute
+        return {**_fallback_search(message), "engine_used": None}
     except Exception as e:
         logger.error("Erreur agent : %s", e, exc_info=True)
         try:
-            return _fallback_search(message)
+            return {**_fallback_search(message), "engine_used": None}
         except Exception:
             return {"response": "Une erreur est survenue pendant la recherche, réessaie.",
-                    "items": []}
+                    "items": [], "engine_used": None}
