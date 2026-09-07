@@ -58,8 +58,58 @@ DEFAULT_PERSONA = (
 # que rien n'est enregistré. Injectée dans les trois constructeurs de prompt.
 # ---------------------------------------------------------------------------
 
-EDITORIAL_DEFAULTS = {"persona": DEFAULT_PERSONA, "tone": "", "rse": ""}
+EDITORIAL_DEFAULTS = {"persona": DEFAULT_PERSONA, "tone": "", "rse": "", "channels": ""}
 _EDITORIAL_KEY = "editorial_line"
+
+# Déclinaisons par canal : la ligne éditoriale est « unique » mais découpée en un
+# socle invariant (persona/ton/RSE + texte commun) et des blocs par canal de
+# diffusion, saisis dans le champ libre "channels" avec des en-têtes
+# [X / TWITTER], [INSTAGRAM], [LINKEDIN]. On n'injecte dans le prompt que le
+# socle + le bloc du canal demandé. Canaux normalisés en interne : x / instagram
+# / linkedin (x = Twitter/X).
+_CHANNEL_HEADER_RE = re.compile(r"\[\s*(x\s*/\s*twitter|x|twitter|instagram|linkedin)\s*\]", re.I)
+_CHANNEL_LABELS = {"x": "X (Twitter)", "instagram": "Instagram", "linkedin": "LinkedIn"}
+
+
+def _normalize_channel(channel) -> str:
+    """Ramène n'importe quel libellé de canal sur x / instagram / linkedin.
+    Tout ce qui n'est pas reconnu (newsletter, format de script, asset…) → 'x'."""
+    key = (channel or "").strip().lower()
+    if key in ("x", "twitter"):
+        return "x"
+    if key in ("instagram", "insta"):
+        return "instagram"
+    if key == "linkedin":
+        return "linkedin"
+    return "x"
+
+
+def _header_channel(raw: str) -> str:
+    raw = raw.lower()
+    if "instagram" in raw:
+        return "instagram"
+    if "linkedin" in raw:
+        return "linkedin"
+    return "x"
+
+
+def _parse_channel_blocks(text: str) -> tuple:
+    """Découpe le texte des déclinaisons en (socle_commun, {canal: bloc}).
+    Le socle commun = tout ce qui précède le premier en-tête de canal. Un canal
+    sans en-tête est simplement absent du dict (repli sur le socle côté appelant)."""
+    text = text or ""
+    matches = list(_CHANNEL_HEADER_RE.finditer(text))
+    if not matches:
+        return text.strip(), {}
+    common = text[:matches[0].start()].strip()
+    blocks = {}
+    for i, m in enumerate(matches):
+        ch = _header_channel(m.group(1))
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        body = text[m.end():end].strip()
+        if body and ch not in blocks:
+            blocks[ch] = body
+    return common, blocks
 
 
 def _ensure_settings_table():
@@ -89,10 +139,10 @@ def get_editorial_line() -> dict:
     return line
 
 
-def set_editorial_line(persona=None, tone=None, rse=None) -> dict:
+def set_editorial_line(persona=None, tone=None, rse=None, channels=None) -> dict:
     """Met à jour les champs fournis (None = inchangé) et renvoie la ligne complète."""
     line = get_editorial_line()
-    for key, value in (("persona", persona), ("tone", tone), ("rse", rse)):
+    for key, value in (("persona", persona), ("tone", tone), ("rse", rse), ("channels", channels)):
         if value is not None:
             line[key] = str(value).strip()
     _ensure_settings_table()
@@ -104,14 +154,41 @@ def set_editorial_line(persona=None, tone=None, rse=None) -> dict:
     return get_editorial_line()
 
 
-def _editorial_block() -> str:
-    """Bloc "ligne éditoriale" injecté en tête des trois prompts."""
+def _editorial_block(channel=None) -> str:
+    """Bloc "ligne éditoriale" injecté en tête des prompts.
+
+    channel=None (scripts, prompts IA) : socle invariant seul, comportement
+    historique. channel renseigné (posts) : socle invariant PUIS uniquement le
+    bloc du canal demandé, suivi d'une consigne stricte. Si le bloc du canal est
+    absent, on se rabat sur le socle seul sans planter.
+    """
     line = get_editorial_line()
-    parts = [f"Ta cible : {line['persona']}."]
+    # Les déclinaisons par canal peuvent être écrites soit dans le corps même de
+    # la ligne éditoriale (champ persona), soit dans un champ dédié "channels".
+    # On parse les deux : socle = tout ce qui précède le 1er en-tête de canal,
+    # et on ne retient QUE le bloc du canal demandé (le champ dédié l'emporte).
+    persona_socle, persona_blocks = _parse_channel_blocks(line["persona"])
+    chan_socle, chan_blocks = _parse_channel_blocks(line.get("channels", ""))
+    blocks = {**persona_blocks, **chan_blocks}
+
+    parts = [f"Ta cible : {persona_socle}."]
     if line["tone"]:
         parts.append(f"Ton éditorial à respecter : {line['tone']}.")
     if line["rse"]:
         parts.append(f"Engagements éditoriaux (RSE) à respecter impérativement : {line['rse']}.")
+    if chan_socle:
+        parts.append(chan_socle)
+
+    # channel=None (scripts, prompts IA) : socle seul, pas de bloc canal de post.
+    if channel is not None:
+        block = blocks.get(_normalize_channel(channel))
+        if block:
+            label = _CHANNEL_LABELS[_normalize_channel(channel)]
+            parts.append(
+                f"Déclinaison à appliquer pour le canal {label} :\n{block}\n"
+                "Respecte strictement les contraintes de longueur, de registre et de "
+                "structure du canal ci-dessus."
+            )
     return "\n".join(parts)
 
 # ---------------------------------------------------------------------------
@@ -187,6 +264,8 @@ def asset_type_list() -> list:
 
 def _channel_config(channel: str) -> dict:
     key = (channel or "").strip().lower()
+    if key == "x":  # alias du canal de diffusion "x" vers la config Tweet / X
+        key = "twitter"
     if key in CHANNELS:
         return {"key": key, **CHANNELS[key]}
     # Canal libre/inconnu : pas de limite dure, l'IA adapte le ton au nom du
@@ -241,6 +320,12 @@ def _ensure_table():
     existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(drafts)")}
     if "content_type" not in existing_cols:
         conn.execute("ALTER TABLE drafts ADD COLUMN content_type TEXT NOT NULL DEFAULT 'post'")
+    # Canal de diffusion normalisé (x / instagram / linkedin) pilotant la
+    # déclinaison de la ligne éditoriale. Distinct de la colonne `channel`
+    # historique, qui stocke la cible/format brut (twitter, tiktok, image…).
+    # Les contenus déjà générés prennent 'x' par défaut : rien ne casse.
+    if "diffusion_channel" not in existing_cols:
+        conn.execute("ALTER TABLE drafts ADD COLUMN diffusion_channel TEXT NOT NULL DEFAULT 'x'")
     conn.commit()
     conn.close()
 
@@ -270,7 +355,7 @@ def _item_line(row: dict) -> str:
 # règles anti-hallucination (uniquement les éléments réels listés).
 # ---------------------------------------------------------------------------
 
-def _build_post_prompt(topic: str, cfg: dict, sources: list) -> str:
+def _build_post_prompt(topic: str, cfg: dict, sources: list, channel: str = "x") -> str:
     lines = "\n".join(_item_line(r) for r in sources)
     limit_txt = (
         f"CONTRAINTE STRICTE : {cfg['max_chars']} caractères maximum (espaces compris)."
@@ -279,7 +364,7 @@ def _build_post_prompt(topic: str, cfg: dict, sources: list) -> str:
     )
     return f"""Tu es le rédacteur de contenu de DiggApp, une application de curation personnelle \
 (mode, sport, cuisine, déco, tech...).
-{_editorial_block()}
+{_editorial_block(channel)}
 
 À partir UNIQUEMENT des éléments réels ci-dessous, sauvegardés dans la collection, rédige un \
 post prêt à publier sur : {cfg['label']}.
@@ -458,9 +543,14 @@ def _enforce_limit(text: str, max_chars: Optional[int]) -> tuple:
 # Point d'entrée
 # ---------------------------------------------------------------------------
 
-def generate_draft(topic: str, target: str, content_type: str = "post") -> dict:
+def generate_draft(topic: str, target: str, content_type: str = "post",
+                   channel: Optional[str] = None) -> dict:
     """Génère un brouillon (post, script ou prompt IA), le sauvegarde en base et
     le renvoie. Ne lève jamais d'exception : renvoie {"error": "..."} en cas d'échec.
+
+    channel : canal de diffusion visé (x / instagram / linkedin) pilotant la
+    déclinaison de la ligne éditoriale. S'il n'est pas fourni, on le déduit de la
+    cible pour un post (twitter→x, etc.), sinon on retombe sur 'x'.
     """
     _ensure_table()
     topic = (topic or "").strip()
@@ -476,9 +566,17 @@ def generate_draft(topic: str, target: str, content_type: str = "post") -> dict:
         return {"error": "Rien dans ta collection ne correspond à ce sujet — impossible de "
                           "générer un contenu fiable sans données réelles derrière."}
 
+    # Canal de diffusion : explicite si fourni, sinon déduit de la cible du post
+    if channel is not None and str(channel).strip():
+        diffusion_channel = _normalize_channel(channel)
+    elif content_type == "post":
+        diffusion_channel = _normalize_channel(target)
+    else:
+        diffusion_channel = "x"
+
     if content_type == "post":
         cfg = _channel_config(target)
-        prompt = _build_post_prompt(topic, cfg, sources)
+        prompt = _build_post_prompt(topic, cfg, sources, channel=diffusion_channel)
     elif content_type == "script":
         cfg = _script_format_config(target)
         prompt = _build_script_prompt(topic, cfg, sources)
@@ -527,9 +625,9 @@ def generate_draft(topic: str, target: str, content_type: str = "post") -> dict:
     now = datetime.now(timezone.utc).isoformat()
     conn = sqlite3.connect(DB_PATH)
     cur = conn.execute(
-        """INSERT INTO drafts (created_at, updated_at, topic, channel, content, status, source_ids, engine_used, content_type)
-           VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?)""",
-        (now, now, topic, cfg["key"], text, json.dumps(source_ids), engine_used, content_type),
+        """INSERT INTO drafts (created_at, updated_at, topic, channel, content, status, source_ids, engine_used, content_type, diffusion_channel)
+           VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)""",
+        (now, now, topic, cfg["key"], text, json.dumps(source_ids), engine_used, content_type, diffusion_channel),
     )
     draft_id = cur.lastrowid
     conn.commit()
@@ -541,6 +639,7 @@ def generate_draft(topic: str, target: str, content_type: str = "post") -> dict:
         "content_type": content_type,
         "channel": cfg["key"],
         "channel_label": cfg["label"],
+        "diffusion_channel": diffusion_channel,
         "content": text,
         "status": "draft",
         "source_ids": source_ids,

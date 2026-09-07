@@ -84,7 +84,11 @@ hors sujet pour une question posée en français, et inversement.
 8. Tu peux aussi AGIR sur la collection, mais UNIQUEMENT quand l'utilisateur le demande \
 explicitement :
 - generate_content : créer un brouillon de contenu dans le Studio ("crée-moi un post X sur...", \
-"fais-moi un script TikTok là-dessus", "prépare un prompt vidéo").
+"fais-moi un script TikTok là-dessus", "prépare un prompt vidéo"). Pour un post, si l'utilisateur \
+nomme un canal de diffusion ("fais-moi un post LinkedIn sur...", "un post Insta", "balance ça sur X"), \
+renseigne le paramètre channel avec ce canal (x, instagram ou linkedin) ET la cible correspondante \
+(target = 'twitter' pour X, 'instagram', 'linkedin'). S'il ne nomme aucun canal, utilise channel = 'x' \
+par défaut. Le paramètre channel adapte la déclinaison de la ligne éditoriale (longueur, registre, structure).
 - move_item_to_category : reclasser un élément dans une autre catégorie ("range ça en sport").
 - update_item_metadata : corriger les métadonnées d'un élément mal extrait quand l'utilisateur \
 explique ce que c'est vraiment (ex. "ce lien c'est en fait un tuto DaVinci Resolve, corrige le \
@@ -169,6 +173,7 @@ TOOL_SCHEMAS = {
                 "topic": {"type": "string", "description": "Le sujet du contenu (ex. 't-shirts manches longues')"},
                 "content_type": {"type": "string", "enum": ["post", "script", "ai_prompt"], "description": "post = texte à publier, script = script de tournage vidéo courte, ai_prompt = prompt pour un outil d'IA générative"},
                 "target": {"type": "string", "description": "La cible : canal du post ('twitter' pour X, 'instagram', 'linkedin', 'newsletter'), format du script ('tiktok', 'reels', 'youtube_shorts'), ou type d'asset pour un prompt IA ('image', 'video')"},
+                "channel": {"type": "string", "enum": ["x", "instagram", "linkedin"], "description": "canal de diffusion visé : x, instagram ou linkedin. Détermine la déclinaison de la ligne éditoriale appliquée au post. Par défaut 'x' si l'utilisateur ne nomme aucun canal."},
             },
             "required": ["topic", "content_type", "target"],
         },
@@ -263,6 +268,7 @@ def _run_tool(name: str, args: dict) -> tuple:
             str(args.get("topic") or ""),
             str(args.get("target") or ""),
             content_type=str(args.get("content_type") or "post"),
+            channel=(str(args["channel"]) if args.get("channel") else None),
         )
         if "error" in result:
             return {"erreur": result["error"]}, []

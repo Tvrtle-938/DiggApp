@@ -142,7 +142,8 @@ def api_editorial_get():
 def api_editorial_put():
     data = request.get_json(silent=True) or {}
     line = content_studio.set_editorial_line(
-        persona=data.get("persona"), tone=data.get("tone"), rse=data.get("rse"))
+        persona=data.get("persona"), tone=data.get("tone"), rse=data.get("rse"),
+        channels=data.get("channels"))
     return jsonify(line)
 
 

@@ -928,6 +928,17 @@
     .draft-meta .status.draft { background: var(--accent); color: #1a1410; }
     .draft-meta .status.published { background: var(--cat-sport); color: #1a1410; }
     .draft-meta .status.discarded { background: var(--card-edge); color: var(--text-dim); }
+    /* Badge du canal de diffusion, distinct du statut */
+    .draft-meta .channel-badge {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 700;
+      border: 1px solid var(--card-edge);
+      color: var(--text);
+    }
+    .draft-meta .channel-badge[data-channel="x"] { border-color: var(--accent); color: var(--accent); }
+    .draft-meta .channel-badge[data-channel="instagram"] { border-color: var(--cat-audiovisuel); color: var(--cat-audiovisuel); }
+    .draft-meta .channel-badge[data-channel="linkedin"] { border-color: var(--cat-sport); color: var(--cat-sport); }
     .draft-card textarea {
       background: var(--bg);
       border: 1px solid var(--card-edge);
@@ -1161,6 +1172,9 @@
           </label>
           <label class="field-label">Engagements RSE
             <input type="text" id="edRse" placeholder="ex. jamais d'incitation à la surconsommation" autocomplete="off">
+          </label>
+          <label class="field-label">Déclinaisons par canal (optionnel)
+            <textarea id="edChannels" rows="5" placeholder="[X / TWITTER]&#10;ton relâché, 280 car. max…&#10;&#10;[INSTAGRAM]&#10;légende aérée, question finale, hashtags groupés…&#10;&#10;[LINKEDIN]&#10;registre pro, sans tutoiement ni argot…"></textarea>
           </label>
           <button type="submit" id="editorialSave">Enregistrer</button>
           <span class="editorial-saved" id="editorialSaved">✓ Ligne éditoriale enregistrée</span>
@@ -1903,6 +1917,7 @@
         document.getElementById("edPersona").value = data.persona || "";
         document.getElementById("edTone").value = data.tone || "";
         document.getElementById("edRse").value = data.rse || "";
+        document.getElementById("edChannels").value = data.channels || "";
         editorialLoaded = true;
       } catch (err) { /* panneau non bloquant : le Studio reste utilisable */ }
     }
@@ -1918,6 +1933,7 @@
             persona: document.getElementById("edPersona").value,
             tone: document.getElementById("edTone").value,
             rse: document.getElementById("edRse").value,
+            channels: document.getElementById("edChannels").value,
           }),
         });
         saved.style.display = "inline";
@@ -1958,7 +1974,7 @@
         <div class="draft-meta">
           <span class="status ${esc(draft.status)}">${esc(draftStatusLabel(draft.status))}</span>
           <span>${esc(TYPE_LABELS[draft.content_type] || draft.content_type || "")}</span>
-          <span>${esc(draft.channel_label || draft.channel)}</span>
+          <span class="channel-badge" data-channel="${esc(draft.diffusion_channel || "")}">${esc(draft.channel_label || draft.channel)}</span>
           <span>· ${esc(draft.topic || "")}</span>
         </div>
         <textarea aria-label="Contenu du brouillon">${esc(draft.content)}</textarea>
