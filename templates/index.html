@@ -32,6 +32,11 @@
       --cat-film_serie: #8d6b4f;   /* brun cacao */
       --cat-inspiration: #d4b483;  /* blé */
       --cat-autre: #77695a;        /* taupe */
+      /* Largeur de la sidebar Studio sur desktop : ≈ moitié de l'écran pour
+         lire les brouillons confortablement, plafonnée à 720px. En vw (et non
+         en px fixe) pour que le contenu principal garde toujours ~48vw et ne
+         déborde jamais horizontalement quand la sidebar pousse la page. */
+      --studio-width: min(52vw, 720px);
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -840,8 +845,6 @@
       transition: right 0.25s ease;
     }
     .studio-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    /* Sidebar ouverte : le toggle se colle à son bord gauche */
-    body.studio-open .studio-toggle { right: 380px; }
 
     .studio-sidebar {
       position: fixed;
@@ -849,7 +852,7 @@
       right: 0;
       height: 100vh;
       height: 100dvh;               /* évite le saut d'UI mobile */
-      width: 380px;
+      width: var(--studio-width);
       max-width: 100%;
       background: var(--bg);
       border-left: 1px solid var(--card-edge);
@@ -862,8 +865,17 @@
     }
     .studio-sidebar.open { transform: translateX(0); }
 
-    /* Mobile : la sidebar passe en plein écran par-dessus le contenu, et on
-       ferme via le ✕ de l'en-tête (le toggle de bord est masqué) */
+    /* Desktop : la sidebar POUSSE le contenu principal (au lieu de flotter
+       par-dessus) — le corps rétrécit de la largeur de la sidebar, sans
+       superposition ni scroll horizontal. Le toggle se colle à son bord gauche. */
+    @media (min-width: 700px) {
+      body { transition: margin-right 0.25s ease; }
+      body.studio-open { margin-right: var(--studio-width); }
+      body.studio-open .studio-toggle { right: var(--studio-width); }
+    }
+
+    /* Mobile : la sidebar passe en plein écran par-dessus le contenu (pas de
+       poussée), et on ferme via le ✕ de l'en-tête (toggle de bord masqué) */
     @media (max-width: 699px) {
       .studio-sidebar { width: 100%; border-left: none; }
       body.studio-open .studio-toggle { display: none; }
@@ -908,22 +920,30 @@
       display: none;
     }
 
+    /* Liste des brouillons : espace vertical généreux entre les cartes */
+    #studioDrafts {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
     .draft-card {
       background: var(--card);
       border: 1px solid var(--card-edge);
-      border-radius: 8px;
-      padding: 12px;
+      border-radius: 10px;
+      padding: 18px 20px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 14px;
     }
     .draft-meta {
       display: flex;
       align-items: center;
-      gap: 8px;
-      font-size: 0.72rem;
+      gap: 10px;
+      font-size: 0.78rem;
       color: var(--text-dim);
       flex-wrap: wrap;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--card-edge);   /* sépare l'en-tête du texte */
     }
     .draft-meta .status {
       padding: 2px 8px;
@@ -949,25 +969,33 @@
     .draft-card textarea {
       background: var(--bg);
       border: 1px solid var(--card-edge);
-      border-radius: 6px;
-      padding: 10px;
+      border-radius: 8px;
+      padding: 14px 16px;
       color: var(--text);
-      font-size: 0.88rem;
-      line-height: 1.4;
-      min-height: 90px;
+      font-size: 0.98rem;
+      line-height: 1.6;
+      min-height: 200px;            /* un post court tient sans scroll interne */
       resize: vertical;
       font-family: inherit;
     }
-    .draft-char-count { font-size: 0.72rem; color: var(--text-dim); }
+    .draft-char-count { font-size: 0.8rem; color: var(--text-dim); }
     .draft-char-count.over { color: var(--cat-audiovisuel); font-weight: 700; }
-    .draft-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    /* Actions bien détachées du texte, boutons aérés */
+    .draft-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+      padding-top: 12px;
+      border-top: 1px solid var(--card-edge);
+    }
     .draft-actions button {
       background: transparent;
       border: 1px solid var(--card-edge);
       color: var(--text);
       border-radius: 6px;
-      padding: 6px 10px;
-      font-size: 0.78rem;
+      padding: 9px 15px;
+      font-size: 0.85rem;
       cursor: pointer;
     }
     .draft-actions button.primary { border-color: var(--accent); color: var(--accent); }
