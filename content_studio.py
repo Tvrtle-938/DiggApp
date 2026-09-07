@@ -326,6 +326,13 @@ def _ensure_table():
     # Les contenus déjà générés prennent 'x' par défaut : rien ne casse.
     if "diffusion_channel" not in existing_cols:
         conn.execute("ALTER TABLE drafts ADD COLUMN diffusion_channel TEXT NOT NULL DEFAULT 'x'")
+    # Proposition de texte alternatif (accessibilité) générée avec le post pour
+    # l'item image lié dont l'alt_text est vide, + l'id de cet item. Purement
+    # indicatif : jamais écrit dans captures.alt_text sans validation humaine.
+    if "alt_text_suggestion" not in existing_cols:
+        conn.execute("ALTER TABLE drafts ADD COLUMN alt_text_suggestion TEXT")
+    if "alt_item_id" not in existing_cols:
+        conn.execute("ALTER TABLE drafts ADD COLUMN alt_item_id INTEGER")
     conn.commit()
     conn.close()
 
@@ -337,6 +344,27 @@ def _ensure_table():
 
 def _gather_sources(topic: str, top_k: int = 15) -> list:
     return semantic_search.search(topic, top_k=top_k)
+
+
+def _source_image(row: dict) -> Optional[str]:
+    """Chemin de l'image d'un item source (capture ou miniature de lien), ou None."""
+    if (row.get("item_type") or "image") == "image":
+        return row.get("file_path")
+    return row.get("thumbnail_path")
+
+
+def _pick_alt_target(sources: list) -> Optional[dict]:
+    """Item source à décrire pour l'accessibilité = « l'item source » du post,
+    c.-à-d. le plus pertinent (sources[0], trié par proximité sémantique).
+    On ne propose un texte alternatif que s'il a une image ET un alt_text vide.
+    Pas d'image, ou alt_text déjà renseigné → None (rien à générer/écraser).
+    """
+    if not sources:
+        return None
+    top = sources[0]
+    if not _source_image(top):
+        return None
+    return None if (top.get("alt_text") or "").strip() else top
 
 
 def _item_line(row: dict) -> str:
@@ -355,13 +383,27 @@ def _item_line(row: dict) -> str:
 # règles anti-hallucination (uniquement les éléments réels listés).
 # ---------------------------------------------------------------------------
 
-def _build_post_prompt(topic: str, cfg: dict, sources: list, channel: str = "x") -> str:
+def _build_post_prompt(topic: str, cfg: dict, sources: list, channel: str = "x",
+                       alt_target: Optional[dict] = None) -> str:
     lines = "\n".join(_item_line(r) for r in sources)
     limit_txt = (
         f"CONTRAINTE STRICTE : {cfg['max_chars']} caractères maximum (espaces compris)."
         if cfg["max_chars"] else
         "Pas de limite stricte de caractères, mais reste concis et adapté au canal."
     )
+    # Texte alternatif (accessibilité) : uniquement si un item image sans alt_text
+    # est ciblé. Description factuelle texte→texte, jamais d'analyse d'image.
+    alt_rule = ""
+    alt_json = ""
+    if alt_target is not None:
+        alt_rule = (
+            f"\n6. TEXTE ALTERNATIF (accessibilité) : l'élément #{alt_target['id']} a une image sans "
+            "description alternative. En plus du post, rédige un champ \"alt_text_suggestion\" : une "
+            "description FACTUELLE et NEUTRE de ce que montre vraisemblablement son visuel, fondée "
+            "UNIQUEMENT sur son titre, sa description, sa catégorie et ses tags (une à deux phrases, "
+            "sans style marketing, sans superlatif, destinée à un lecteur d'écran)."
+        )
+        alt_json = ', "alt_text_suggestion": "<description factuelle du visuel de #%s>"' % alt_target["id"]
     return f"""Tu es le rédacteur de contenu de DiggApp, une application de curation personnelle \
 (mode, sport, cuisine, déco, tech...).
 {_editorial_block(channel)}
@@ -381,7 +423,7 @@ que d'inventer du contenu.
 5. Reconnais les synonymes et équivalents français/anglais du domaine avant de juger la \
 pertinence d'un élément (ex. "manches longues" = "longsleeve"/"long sleeve", "baskets" = \
 "sneakers", "sweat à capuche" = "hoodie") : un élément qui utilise le terme anglais n'est \
-pas hors sujet pour une demande formulée en français.
+pas hors sujet pour une demande formulée en français.{alt_rule}
 
 Sujet demandé : "{topic}"
 
@@ -389,7 +431,7 @@ Sujet demandé : "{topic}"
 {lines}
 
 Réponds avec UNIQUEMENT un objet JSON valide (pas de markdown, pas d'explication) au format :
-{{"post": "<texte du post>", "source_ids": [<id1>, <id2>], "warning": <null ou message si les données sont insuffisantes>}}"""
+{{"post": "<texte du post>", "source_ids": [<id1>, <id2>], "warning": <null ou message si les données sont insuffisantes>{alt_json}}}"""
 
 
 def _build_script_prompt(topic: str, cfg: dict, sources: list) -> str:
@@ -574,9 +616,12 @@ def generate_draft(topic: str, target: str, content_type: str = "post",
     else:
         diffusion_channel = "x"
 
+    alt_target = None
     if content_type == "post":
         cfg = _channel_config(target)
-        prompt = _build_post_prompt(topic, cfg, sources, channel=diffusion_channel)
+        alt_target = _pick_alt_target(sources)   # item image sans alt_text, ou None
+        prompt = _build_post_prompt(topic, cfg, sources, channel=diffusion_channel,
+                                    alt_target=alt_target)
     elif content_type == "script":
         cfg = _script_format_config(target)
         prompt = _build_script_prompt(topic, cfg, sources)
@@ -603,6 +648,15 @@ def generate_draft(topic: str, target: str, content_type: str = "post",
     warning = data.get("warning") or None
     source_ids = [int(i) for i in (data.get("source_ids") or []) if str(i).lstrip("-").isdigit()]
 
+    # Texte alternatif proposé pour l'item image ciblé (jamais écrit en base ici :
+    # simple suggestion éditable dans le Studio avant validation humaine).
+    alt_text_suggestion = None
+    alt_item_id = None
+    if alt_target is not None:
+        alt_text_suggestion = str(data.get("alt_text_suggestion") or "").strip() or None
+        if alt_text_suggestion:
+            alt_item_id = alt_target["id"]
+
     if content_type == "post":
         text = str(data.get("post") or "").strip()
         if not text:
@@ -625,9 +679,9 @@ def generate_draft(topic: str, target: str, content_type: str = "post",
     now = datetime.now(timezone.utc).isoformat()
     conn = sqlite3.connect(DB_PATH)
     cur = conn.execute(
-        """INSERT INTO drafts (created_at, updated_at, topic, channel, content, status, source_ids, engine_used, content_type, diffusion_channel)
-           VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)""",
-        (now, now, topic, cfg["key"], text, json.dumps(source_ids), engine_used, content_type, diffusion_channel),
+        """INSERT INTO drafts (created_at, updated_at, topic, channel, content, status, source_ids, engine_used, content_type, diffusion_channel, alt_text_suggestion, alt_item_id)
+           VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?)""",
+        (now, now, topic, cfg["key"], text, json.dumps(source_ids), engine_used, content_type, diffusion_channel, alt_text_suggestion, alt_item_id),
     )
     draft_id = cur.lastrowid
     conn.commit()
@@ -648,6 +702,8 @@ def generate_draft(topic: str, target: str, content_type: str = "post",
         "char_count": len(text),
         "max_chars": cfg.get("max_chars"),
         "warning": warning,
+        "alt_text_suggestion": alt_text_suggestion,
+        "alt_item_id": alt_item_id,
     }
 
 
@@ -686,7 +742,8 @@ def list_drafts(status: Optional[str] = None) -> list:
     return rows
 
 
-def update_draft(draft_id: int, content: Optional[str] = None, status: Optional[str] = None) -> bool:
+def update_draft(draft_id: int, content: Optional[str] = None, status: Optional[str] = None,
+                 clear_alt_suggestion: bool = False) -> bool:
     _ensure_table()
     fields, params = [], []
     if content is not None:
@@ -697,6 +754,11 @@ def update_draft(draft_id: int, content: Optional[str] = None, status: Optional[
             return False
         fields.append("status = ?")
         params.append(status)
+    # Une fois le texte alternatif validé/enregistré sur l'item lié, on retire la
+    # proposition du brouillon pour ne plus la reproposer.
+    if clear_alt_suggestion:
+        fields.append("alt_text_suggestion = NULL")
+        fields.append("alt_item_id = NULL")
     if not fields:
         return False
     fields.append("updated_at = ?")

@@ -1001,6 +1001,40 @@
     .draft-actions button.primary { border-color: var(--accent); color: var(--accent); }
     .draft-actions button.danger { border-color: var(--cat-audiovisuel); color: var(--cat-audiovisuel); }
 
+    /* Proposition de texte alternatif (accessibilité) générée avec le post */
+    .draft-alt {
+      border-top: 1px dashed var(--card-edge);
+      padding-top: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .draft-alt textarea {
+      background: var(--bg);
+      border: 1px solid var(--card-edge);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--text);
+      font-size: 0.9rem;
+      line-height: 1.5;
+      min-height: 64px;
+      resize: vertical;
+      font-family: inherit;
+      width: 100%;
+    }
+    .draft-alt-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .draft-alt-actions button {
+      background: transparent;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      border-radius: 6px;
+      padding: 9px 15px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .draft-alt-actions button:disabled { opacity: 0.5; cursor: default; }
+    .draft-alt .alt-saved { font-size: 0.8rem; color: var(--cat-sport); font-weight: 700; }
+
     /* =====================================================================
        PAGE CONFIDENTIALITÉ — quelles données, où, pourquoi, comment effacer
        ===================================================================== */
@@ -1251,6 +1285,10 @@
         <img class="preview" id="editPreview" alt="Aperçu de l'image actuelle" style="display:none">
         <input type="file" id="editImage" accept="image/jpeg,image/png,image/webp,image/gif">
       </label>
+      <label class="field-label" for="editAltText">Texte alternatif (accessibilité)
+        <textarea id="editAltText" rows="2"
+                  placeholder="Décrivez ce que montre l'image pour une personne malvoyante"></textarea>
+      </label>
       <div class="modal-actions">
         <button type="button" id="editCancel">Annuler</button>
         <button type="submit" class="primary" id="editSave">Enregistrer</button>
@@ -1379,9 +1417,11 @@
       const tagsHtml = (item.tags || []).slice(0, 5)
         .map(t => `<span class="tag">#${esc(t)}</span>`).join("");
 
-      // Visuel : image pour les captures, miniature pour les liens, sinon placeholder
+      // Visuel : image pour les captures, miniature pour les liens, sinon placeholder.
+      // alt = texte alternatif saisi si présent (accessibilité), sinon repli sur le titre.
+      const imgAlt = item.alt_text || title;
       const visual = item.image
-        ? `<img src="/${esc(item.image)}" alt="${esc(title)}" loading="lazy">`
+        ? `<img src="/${esc(item.image)}" alt="${esc(imgAlt)}" loading="lazy">`
         : `<div class="placeholder">${esc(typeLabel)}</div>`;
 
       // Badge toujours présent ("?" si non catégorisé) : c'est le point
@@ -1658,6 +1698,7 @@
       document.getElementById("editTitle").value = item.title || "";
       document.getElementById("editTags").value = (item.tags || []).join(", ");
       document.getElementById("editDesc").value = item.description || "";
+      document.getElementById("editAltText").value = item.alt_text || "";
       document.getElementById("editCategory").value =
         CATEGORIES.includes(item.category) ? item.category : "autre";
       document.getElementById("editImage").value = "";
@@ -1716,6 +1757,7 @@
         fd.append("title", document.getElementById("editTitle").value.trim());
         fd.append("tags", document.getElementById("editTags").value.trim());
         fd.append("description", document.getElementById("editDesc").value.trim());
+        fd.append("alt_text", document.getElementById("editAltText").value.trim());
         fd.append("category", document.getElementById("editCategory").value);
         const file = document.getElementById("editImage").files[0];
         if (file) fd.append("image", file);
@@ -2019,6 +2061,20 @@
       const el = document.createElement("div");
       el.className = "draft-card";
       const maxTxt = draft.max_chars ? ` / ${draft.max_chars}` : "";
+      // Proposition de texte alternatif : présente seulement si l'IA en a généré
+      // une (item image lié sans alt_text). Éditable, écrite sur l'item seulement
+      // à la validation de l'utilisateur — jamais automatiquement.
+      const hasAlt = !!(draft.alt_text_suggestion && draft.alt_item_id);
+      const altHtml = hasAlt ? `
+        <div class="draft-alt">
+          <label class="field-label">Texte alternatif proposé pour l'image liée (#${esc(String(draft.alt_item_id))})
+            <textarea class="alt-suggestion" aria-label="Texte alternatif proposé pour l'image liée">${esc(draft.alt_text_suggestion)}</textarea>
+          </label>
+          <div class="draft-alt-actions">
+            <button type="button" data-action="save-alt">Enregistrer le texte alternatif sur l'élément</button>
+            <span class="alt-saved" hidden>✓ enregistré sur l'élément</span>
+          </div>
+        </div>` : "";
       el.innerHTML = `
         <div class="draft-meta">
           <span class="status ${esc(draft.status)}">${esc(draftStatusLabel(draft.status))}</span>
@@ -2028,6 +2084,7 @@
         </div>
         <textarea aria-label="Contenu du brouillon">${esc(draft.content)}</textarea>
         <div class="draft-char-count">${draft.content.length}${maxTxt} caractères</div>
+        ${altHtml}
         <div class="draft-actions">
           <button type="button" class="primary" data-action="save">Enregistrer</button>
           <button type="button" data-action="publish">Marquer publié</button>
@@ -2061,6 +2118,35 @@
         await fetch(`/api/drafts/${draft.id}`, { method: "DELETE" });
         loadDrafts();
       };
+
+      if (hasAlt) {
+        const altTa = el.querySelector(".alt-suggestion");
+        const altBtn = el.querySelector('[data-action="save-alt"]');
+        altBtn.onclick = async () => {
+          const val = altTa.value.trim();
+          if (!val) return;
+          altBtn.disabled = true;
+          try {
+            // 1) écrit le texte alternatif sur l'item lié (validation humaine)
+            const r = await fetch(`/api/items/${draft.alt_item_id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ alt_text: val }),
+            });
+            if (!r.ok) throw new Error("alt non enregistré");
+            // 2) retire la proposition du brouillon pour ne plus la reproposer
+            await fetch(`/api/drafts/${draft.id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ clear_alt_suggestion: true }),
+            });
+            el.querySelector(".alt-saved").hidden = false;
+            loadItems();   // la grille Collection reflète le nouvel alt
+          } catch (err) {
+            altBtn.disabled = false;
+          }
+        };
+      }
       return el;
     }
 

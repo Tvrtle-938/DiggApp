@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 DB_PATH = Path("hub.db")
 
 SEARCH_COLUMNS = """id, created_at, file_path, description, category, tags,
-                    item_type, url, platform, title, thumbnail_path"""
+                    item_type, url, platform, title, thumbnail_path, alt_text"""
 
 KEYWORD_FIELDS = ("description", "category", "tags", "title", "platform", "user_note")
 

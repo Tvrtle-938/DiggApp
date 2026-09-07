@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 DB_PATH = Path("hub.db")
 
 RESULT_COLUMNS = """id, created_at, file_path, description, category, tags,
-                    item_type, url, platform, title, thumbnail_path, user_note"""
+                    item_type, url, platform, title, thumbnail_path, user_note, alt_text"""
 
 
 def search(query: str, top_k: int = 10) -> list:

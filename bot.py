@@ -61,6 +61,7 @@ def init_db():
         "thumbnail_path": "TEXT",
         "user_note": "TEXT",
         "embedding": "TEXT",  # vecteur sémantique sérialisé en JSON
+        "alt_text": "TEXT",   # texte alternatif accessibilité (description du visuel)
     }
     for col, col_type in new_columns.items():
         if col not in existing:

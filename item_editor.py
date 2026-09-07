@@ -30,6 +30,21 @@ DB_PATH = Path("hub.db")
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
 
+def ensure_schema():
+    """Migration idempotente : ajoute la colonne alt_text à captures si absente.
+    Appelée au démarrage du serveur web (le bot fait la même chose dans init_db),
+    pour que le texte alternatif existe avant toute lecture/écriture d'item.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(captures)")}
+    # cols vide = table pas encore créée (le bot s'en charge) : rien à migrer ici
+    if cols and "alt_text" not in cols:
+        conn.execute("ALTER TABLE captures ADD COLUMN alt_text TEXT")
+        logger.info("Migration : colonne alt_text ajoutée à captures")
+    conn.commit()
+    conn.close()
+
+
 def _normalize_tags(tags) -> Optional[list]:
     """Accepte une liste ou une chaîne "a, b, c" ; renvoie une liste propre."""
     if tags is None:
@@ -53,9 +68,13 @@ def _refresh_embedding(conn, item_id: int, row: dict) -> bool:
     return False
 
 
-def update_item(item_id, category=None, title=None, description=None, tags=None) -> dict:
+def update_item(item_id, category=None, title=None, description=None, tags=None,
+                alt_text=None) -> dict:
     """Met à jour les champs fournis (les autres restent intacts) puis régénère
     l'embedding. Renvoie {"ok", "item", "embedding_updated"} ou {"error": ...}.
+
+    alt_text (accessibilité) est un champ purement descriptif du visuel : il est
+    stocké mais ne participe pas au texte indexé pour la recherche sémantique.
     """
     try:
         item_id = int(item_id)
@@ -79,6 +98,9 @@ def update_item(item_id, category=None, title=None, description=None, tags=None)
     if norm_tags is not None:
         fields.append("tags = ?")
         params.append(json.dumps(norm_tags, ensure_ascii=False))
+    if alt_text is not None:
+        fields.append("alt_text = ?")
+        params.append(str(alt_text).strip() or None)
     if not fields:
         return {"error": "Aucun champ à mettre à jour."}
 

@@ -22,6 +22,10 @@ app = Flask(__name__)
 
 ASSETS_DIR = Path("assets")
 
+# Migration idempotente au démarrage (le bot fait de même via init_db) : garantit
+# que la colonne alt_text existe avant toute lecture/écriture d'item côté web.
+item_editor.ensure_schema()
+
 
 def serialize(row: dict) -> dict:
     """Prépare une ligne de la base pour le JSON : tags décodés, chemins web."""
@@ -41,6 +45,7 @@ def serialize(row: dict) -> dict:
         "tags": tags,
         "url": row.get("url"),
         "platform": row.get("platform"),
+        "alt_text": row.get("alt_text"),
         # Chemins relatifs servis par les routes /data/… ci-dessous
         "image": row.get("file_path") if (row.get("item_type") or "image") == "image" else row.get("thumbnail_path"),
     }
@@ -98,7 +103,7 @@ def api_items_update(item_id):
         data = request.get_json(silent=True) or {}
         new_image = None
 
-    updates = {k: data.get(k) for k in ("category", "title", "description", "tags")
+    updates = {k: data.get(k) for k in ("category", "title", "description", "tags", "alt_text")
                if data.get(k) is not None}
 
     result = {"ok": True, "id": item_id, "embedding_updated": False}
@@ -199,7 +204,9 @@ def api_drafts_generate():
 @app.route("/api/drafts/<int:draft_id>", methods=["PUT"])
 def api_drafts_update(draft_id):
     data = request.get_json(silent=True) or {}
-    ok = content_studio.update_draft(draft_id, content=data.get("content"), status=data.get("status"))
+    ok = content_studio.update_draft(
+        draft_id, content=data.get("content"), status=data.get("status"),
+        clear_alt_suggestion=bool(data.get("clear_alt_suggestion")))
     return jsonify({"ok": ok})
 
 
