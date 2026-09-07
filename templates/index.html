@@ -564,33 +564,9 @@
       font-size: 0.95rem;
     }
 
-    /* =====================================================================
-       PANNEAU FLOTTANT — utilisé par le studio de contenu
-       (plein écran sur mobile, ancré en bas à droite sur desktop)
-       ===================================================================== */
-    .chat-panel {
-      position: fixed;
-      inset: 0;                    /* mobile : plein écran */
-      background: var(--bg);
-      z-index: 100;
-      display: none;               /* caché par défaut, .open l'affiche */
-      flex-direction: column;
-    }
-    .chat-panel.open { display: flex; }
-
-    /* Desktop : panneau ancré en bas à droite */
-    @media (min-width: 700px) {
-      .chat-panel {
-        inset: auto 20px 20px auto;
-        width: 400px;
-        height: min(620px, calc(100vh - 40px));
-        border: 1px solid var(--card-edge);
-        border-radius: 10px;
-        overflow: hidden;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55);
-      }
-    }
-
+    /* (L'ancien panneau flottant .chat-panel du Studio a été remplacé par la
+       barre latérale droite .studio-sidebar — voir la section STUDIO plus bas.
+       .chat-head est conservé : il sert d'en-tête à la sidebar.) */
     .chat-head {
       display: flex;
       align-items: center;
@@ -839,27 +815,58 @@
     }
 
     /* =====================================================================
-       STUDIO DE CONTENU -- bouton flottant + panneau (calque sur le chat)
+       STUDIO DE CONTENU -- barre latérale droite masquable (façon sidebar
+       de Claude Desktop) + bouton toggle fixé au bord droit de l'écran
        ===================================================================== */
-    .studio-fab {
+    .studio-toggle {
       position: fixed;
-      bottom: 20px;
-      right: 16px;
-      width: 50px;
-      height: 50px;
-      border-radius: 14px;
+      top: 50%;
+      right: 0;
+      transform: translateY(-50%);
+      z-index: 101;                 /* au-dessus de la sidebar : reste cliquable */
+      width: 32px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       background: var(--card);
       border: 1px solid var(--accent);
+      border-right: none;
+      border-radius: 10px 0 0 10px;
       color: var(--accent);
-      font-size: 1.25rem;
+      font-size: 1.1rem;
       cursor: pointer;
-      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
-      z-index: 90;
+      box-shadow: -3px 0 14px rgba(0, 0, 0, 0.3);
+      transition: right 0.25s ease;
     }
-    /* Sur mobile, la bulle Digg occupe toute la largeur en bas : le bouton
-       studio remonte au-dessus pour ne pas couvrir le bouton d'envoi */
+    .studio-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    /* Sidebar ouverte : le toggle se colle à son bord gauche */
+    body.studio-open .studio-toggle { right: 380px; }
+
+    .studio-sidebar {
+      position: fixed;
+      top: 0;
+      right: 0;
+      height: 100vh;
+      height: 100dvh;               /* évite le saut d'UI mobile */
+      width: 380px;
+      max-width: 100%;
+      background: var(--bg);
+      border-left: 1px solid var(--card-edge);
+      box-shadow: -10px 0 40px rgba(0, 0, 0, 0.45);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      transform: translateX(100%);  /* fermée : hors écran à droite */
+      transition: transform 0.25s ease;
+    }
+    .studio-sidebar.open { transform: translateX(0); }
+
+    /* Mobile : la sidebar passe en plein écran par-dessus le contenu, et on
+       ferme via le ✕ de l'en-tête (le toggle de bord est masqué) */
     @media (max-width: 699px) {
-      body.view-digg .studio-fab { bottom: calc(88px + env(safe-area-inset-bottom)); }
+      .studio-sidebar { width: 100%; border-left: none; }
+      body.studio-open .studio-toggle { display: none; }
     }
 
     .studio-body {
@@ -1031,7 +1038,6 @@
     <nav class="tabs" id="tabs" aria-label="Navigation principale">
       <button data-view="digg" class="active" aria-current="page">⛏️ Digg</button>
       <button data-view="collection">🧱 Collection</button>
-      <button data-view="studio">📝 Studio</button>
       <button data-view="privacy">🔒 Confidentialité</button>
     </nav>
     <div class="searchbar">
@@ -1148,11 +1154,12 @@
     Détails dans l'onglet Confidentialité.
   </footer>
 
-  <!-- ================= STUDIO DE CONTENU ================= -->
-  <button class="studio-fab" id="studioFab" title="Studio de contenu"
-          aria-label="Ouvrir le Studio de contenu">📝</button>
+  <!-- ================= STUDIO DE CONTENU (barre latérale droite) ============ -->
+  <button class="studio-toggle" id="studioToggle" type="button"
+          aria-controls="studioSidebar" aria-expanded="false"
+          title="Brouillons du Studio" aria-label="Ouvrir les brouillons du Studio">◀</button>
 
-  <div class="chat-panel" id="studioPanel" role="region" aria-label="Studio de contenu">
+  <aside class="studio-sidebar" id="studioSidebar" role="region" aria-label="Studio de contenu — brouillons">
     <div class="chat-head">
       <div>
         <h2 class="t">Studio de contenu</h2>
@@ -1194,7 +1201,7 @@
       <div class="draft-error" id="studioError"></div>
       <div id="studioDrafts"></div>
     </div>
-  </div>
+  </aside>
 
   <!-- ================= MODALE D'ÉDITION D'UN ÉLÉMENT ================= -->
   <div class="modal-overlay" id="editOverlay">
@@ -1722,9 +1729,9 @@
     });
 
     /* ===================================================================
-       ONGLETS — 4 destinations : Digg, Collection, Studio, Confidentialité.
-       Digg/Collection/Confidentialité sont des vues (classe sur <body>) ;
-       Studio ouvre son panneau par-dessus la vue courante.
+       ONGLETS — 3 destinations : Digg, Collection, Confidentialité.
+       Ce sont des vues (classe sur <body>). Le Studio n'est plus un onglet :
+       il vit dans une barre latérale indépendante (voir plus bas).
        =================================================================== */
     const VIEW_CLASSES = ["view-digg", "view-collection", "view-privacy"];
     let pageView = "digg";    // vue de fond active (hors panneau Studio)
@@ -1748,12 +1755,7 @@
     document.getElementById("tabs").addEventListener("click", (e) => {
       const btn = e.target.closest("button");
       if (!btn) return;
-      if (btn.dataset.view === "studio") {
-        openStudio(btn);
-        return;
-      }
-      closeStudio(false);   // referme le panneau sans voler le focus
-      showView(btn.dataset.view);
+      showView(btn.dataset.view);   // la sidebar Studio est indépendante des vues
     });
 
     /* Lien d'évitement : envoie le focus sur la zone de contenu de la vue
@@ -1869,41 +1871,60 @@
     /* ===================================================================
        STUDIO DE CONTENU
        =================================================================== */
-    const studioPanel = document.getElementById("studioPanel");
+    const studioSidebar = document.getElementById("studioSidebar");
+    const studioToggle = document.getElementById("studioToggle");
     const studioDraftsEl = document.getElementById("studioDrafts");
     const studioTypeEl = document.getElementById("studioType");
     const studioChannelEl = document.getElementById("studioChannel");
     const studioErrorEl = document.getElementById("studioError");
     const targetsCache = {};
+    let studioContentLoaded = false;   // ligne éditoriale + canaux chargés une seule fois
+    let draftCount = 0;                 // pilote l'ouverture par défaut de la sidebar
 
     const TYPE_LABELS = { post: "Post", script: "Script vidéo", ai_prompt: "Prompt IA" };
 
-    /* Ouverture (onglet Studio ou bouton flottant) : l'onglet Studio devient
-       actif, le focus entre dans le panneau. Fermeture (✕ ou Échap) :
-       l'onglet de la vue de fond redevient actif, le focus revient à
-       l'élément qui a ouvert le panneau. */
-    let studioOpener = null;
-
-    async function openStudio(opener) {
-      studioOpener = opener || null;
-      setActiveTab("studio");
-      studioPanel.classList.add("open");
-      document.getElementById("studioTopic").focus();
+    /* La barre latérale des brouillons glisse depuis le bord droit (translateX).
+       L'état ouvert/fermé est gardé en mémoire le temps de la session (pas de
+       persistance serveur). Toggle au clavier + Échap pour fermer. */
+    async function ensureStudioContent() {
+      if (studioContentLoaded) return;
+      studioContentLoaded = true;
       loadEditorial();
       await loadTargets(studioTypeEl.value);
+    }
+
+    function showStudio(focusInside) {
+      studioSidebar.classList.add("open");
+      document.body.classList.add("studio-open");
+      studioToggle.setAttribute("aria-expanded", "true");
+      studioToggle.setAttribute("aria-label", "Fermer les brouillons du Studio");
+      studioToggle.textContent = "▶";
+      if (focusInside) document.getElementById("studioTopic").focus();
+    }
+
+    async function openStudio(focusInside = true) {
+      await ensureStudioContent();
+      showStudio(focusInside);
       loadDrafts();
     }
 
     function closeStudio(refocus = true) {
-      if (!studioPanel.classList.contains("open")) return;
-      studioPanel.classList.remove("open");
-      setActiveTab(pageView);
-      if (refocus && studioOpener) studioOpener.focus();
-      studioOpener = null;
+      if (!studioSidebar.classList.contains("open")) return;
+      studioSidebar.classList.remove("open");
+      document.body.classList.remove("studio-open");
+      studioToggle.setAttribute("aria-expanded", "false");
+      studioToggle.setAttribute("aria-label", "Ouvrir les brouillons du Studio");
+      studioToggle.textContent = "◀";
+      if (refocus) studioToggle.focus();
     }
 
-    document.getElementById("studioFab").onclick = (e) => openStudio(e.currentTarget);
-    studioPanel.addEventListener("keydown", (e) => {
+    function toggleStudio() {
+      if (studioSidebar.classList.contains("open")) closeStudio();
+      else openStudio();
+    }
+
+    studioToggle.addEventListener("click", toggleStudio);
+    studioSidebar.addEventListener("keydown", (e) => {
       if (e.key === "Escape") closeStudio();
     });
 
@@ -2020,6 +2041,7 @@
       try {
         const res = await fetch("/api/drafts");
         const data = await res.json();
+        draftCount = data.drafts.length;
         studioDraftsEl.innerHTML = "";
         if (!data.drafts.length) {
           studioDraftsEl.innerHTML = `<div class="empty">Aucun brouillon pour l'instant — génère ton premier post ci-dessus.</div>`;
@@ -2068,6 +2090,17 @@
 
     /* Premier chargement */
     loadItems();
+
+    /* Studio : on charge les brouillons au démarrage pour décider de l'état
+       par défaut de la sidebar — ouverte s'il y a des brouillons (desktop),
+       fermée sinon. Sur mobile on laisse fermé pour ne pas masquer l'app au
+       chargement ; l'utilisateur ouvre via le toggle. */
+    (async () => {
+      await ensureStudioContent();
+      await loadDrafts();
+      const isDesktop = window.matchMedia("(min-width: 700px)").matches;
+      if (draftCount > 0 && isDesktop) showStudio(false);
+    })();
   </script>
 </body>
 </html>
